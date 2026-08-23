@@ -1,0 +1,84 @@
+# Configuration for lint_docs.py. Every value has a default, so a project can run the
+# linter with no config at all; this file exists to point it at your layout and to
+# teach it the names your project actually uses.
+#
+# Command-line flags win over this file:
+#   python tools/lint_docs.py --docs ai_docs --profile research
+
+[profile]
+# "engineering" or "research". The research profile turns on the experiment register,
+# the run-configuration register, the plan/ checks and the measurement contract.
+name = "engineering"
+
+[paths]
+root = "."                    # project root, relative to this file's directory
+docs = "ai_docs"
+method = "ai_docs_method"     # local method folder, if the project has one
+corpus = "ai_docs/corpus.md"  # research only; put it where a measurer will look
+baseline = ""                 # research only, e.g. "tools/bench/baseline"
+extra_doc_dirs = []           # other markdown the linter is responsible for, e.g. ["tools"]
+path_roots = ["", "ai_docs"]  # a documented path only has to resolve against one of these
+root_pointers = ["CLAUDE.md", ".cursorrules", ".github/copilot-instructions.md"]
+# Paths that legitimately do not exist: an artefact the docs declare as not yet written,
+# a file in someone else's repository, a build output that only exists after a build.
+# Keep the reason beside each one.
+allow = []
+
+[registers]
+# prefix -> file inside docs/. E is ignored outside the research profile.
+G = "gotchas.md"
+A = "architecture.md"
+E = "experiments.md"
+
+[limits]
+"start.md" = 100
+"status.md" = 80
+# Past this many entries an index stops being scannable and the register should be split
+# by area under one top-level index. A warning, not an error: the system should tell you
+# when to split rather than you guessing.
+register_split_warn = 60
+
+[numbers]
+# Research only. Files where results are reported; plan/*.md legitimately states target
+# numbers with no measurement behind them yet, and gotchas describe symptoms.
+result_files = ["status.md", "journal.md", "experiments.md", "overview.md"]
+units = ["ms", "MB/s", "fps", "%", "s"]
+# A figure does not stop being a measurement because its unit was left off. List the
+# metric names your project reports, so "p50 fell from 33.70 to 31.02" is caught too.
+metric_names = ["p50", "p95", "p99", "frametime"]
+# Phrases that excuse a number: thresholds, run settings, stated targets. Each should
+# carry the reason it is not a traceable measurement.
+allow = [
+  "acceptance criterion",  # states a target, not a result
+  "threshold",             # describes the harness, not a measurement
+]
+
+[measurement]
+# Research only. Fields every stored report must carry; null is a legitimate value
+# (a baseline has no experiment), a missing key is not.
+required_fields = ["corpus_id", "experiment", "compare_to", "run_order"]
+id_field = "corpus_id"
+# Prefix used in [[<prefix>:<id>]] links to a run configuration. Projects that measure
+# something other than a corpus name it differently: "scene", "dataset", "workload".
+link_prefix = "corpus"
+raw_dir = "raw"   # holds the reports a baseline was curated from; not stored measurements
+
+[labels]
+# Field labels as they appear in your documents. The standard is written in English, but
+# a project may keep its documents in another language (METHODOLOGY.md, section 5).
+# Leaving these at the English defaults on, say, a Russian-language document set silently
+# disables the prediction and status checks — they find no matching block and report
+# nothing, which looks exactly like passing.
+prediction = "Prediction"
+status = "Status"
+status_open = "open"
+status_refuted = "refuted"
+acceptance_criterion = "Acceptance criterion"
+
+[tasks]
+# Research only. Shape of a task id as it appears in the backlog table.
+id_pattern = "[A-Z]-[0-9a-z]+"
+backlog = "plan/backlog.md"
+plan_dir = "plan"
+# The line in backlog.md that declares which statuses are legal.
+legend_label = "Status legend:"

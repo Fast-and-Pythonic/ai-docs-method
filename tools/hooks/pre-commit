@@ -1,0 +1,17 @@
+#!/bin/sh
+# Run the documentation linter before every commit.
+# Install once:  git config core.hooksPath tools/hooks
+
+set -e
+
+if ! command -v python >/dev/null 2>&1; then
+    echo "pre-commit: python not found, skipping the documentation lint" >&2
+    exit 0
+fi
+
+python tools/lint_docs.py || {
+    echo >&2
+    echo "pre-commit: documentation lint failed. Fix the errors above, or commit with" >&2
+    echo "--no-verify if you are deliberately committing a broken intermediate state." >&2
+    exit 1
+}

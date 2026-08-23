@@ -1,0 +1,866 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+#
+# Documentation linter for the ai_docs standard.
+#
+# Implements the checks specified in RULES.md ("What lint checks"). Every check backs a
+# hard rule there, or catches rot that has actually happened in the projects this
+# standard came from.
+#
+#   python tools/lint_docs.py --docs ai_docs --profile engineering
+#
+# Exit code 0 = clean (warnings allowed), 1 = at least one error.
+#
+# Configuration lives in lint_docs.toml beside this file; every value has a default, so
+# the linter runs on a project that has no config at all. Command-line flags win over
+# the config file.
+
+import argparse
+import json
+import os
+import re
+import sys
+from collections import Counter
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    tomllib = None
+
+
+# --- configuration ------------------------------------------------------------------
+
+DEFAULTS = {
+    "paths": {
+        "root": ".",
+        "docs": "ai_docs",
+        "method": "ai_docs_method",
+        "corpus": "ai_docs/corpus.md",
+        "baseline": "",
+        "extra_doc_dirs": [],
+        "path_roots": ["", "ai_docs"],
+        "root_pointers": ["CLAUDE.md", ".cursorrules",
+                          ".github/copilot-instructions.md"],
+        "allow": [],
+    },
+    "profile": {"name": "engineering"},
+    "registers": {"G": "gotchas.md", "A": "architecture.md", "E": "experiments.md"},
+    "limits": {"start.md": 100, "status.md": 80, "register_split_warn": 60},
+    "numbers": {
+        "result_files": ["status.md", "journal.md", "experiments.md", "overview.md"],
+        "units": ["ms", "MB/s", "fps", "%", "s"],
+        # A figure does not stop being a measurement because its unit was left off:
+        # "p50 fell from 33.70 to 31.02" is invisible to a unit-based pattern. A metric
+        # name next to a decimal is treated the same as a number with a unit. List the
+        # metric names your project actually reports.
+        "metric_names": ["p50", "p95", "p99", "frametime"],
+        # Legitimate exceptions. Each should carry, in the config, the reason it is not
+        # a traceable measurement — a threshold, a run setting, a stated target.
+        "allow": ["acceptance criterion", "threshold"],
+    },
+    "measurement": {
+        "required_fields": ["corpus_id", "experiment", "compare_to", "run_order"],
+        "id_field": "corpus_id",
+        # Prefix used in [[<prefix>:<id>]] links to a run configuration. Projects that
+        # measure something other than a corpus name it differently — "scene", "dataset".
+        "link_prefix": "corpus",
+        # Directory name holding the raw reports a baseline was curated from. They are
+        # inputs, not stored measurements, and older ones predate the schema.
+        "raw_dir": "raw",
+    },
+    # Field labels as they appear in the documents. The standard is written in English,
+    # but a project may keep its documents in another language (METHODOLOGY.md, section
+    # 5). Hard-coding the English labels would silently disable half the research checks
+    # on such a project — they would find no Prediction block and no Status line, and
+    # report nothing.
+    "labels": {
+        "prediction": "Prediction",
+        "status": "Status",
+        "status_open": "open",
+        "status_refuted": "refuted",
+        "acceptance_criterion": "Acceptance criterion",
+    },
+    "tasks": {
+        # Shape of a task id, e.g. T-1, I-2, R-2ab.
+        "id_pattern": r"[A-Z]-[0-9a-z]+",
+        "backlog": "plan/backlog.md",
+        "plan_dir": "plan",
+        # The line in backlog.md that declares which statuses are legal.
+        "legend_label": "Status legend:",
+    },
+}
+
+RESEARCH_ONLY = {"E"}  # registers that exist only in the research profile
+
+
+def load_config(path, overrides):
+    cfg = {k: dict(v) if isinstance(v, dict) else v for k, v in DEFAULTS.items()}
+    if path and os.path.exists(path):
+        if tomllib is None:
+            print("warning  Python < 3.11: cannot read lint_docs.toml, using defaults "
+                  "and command-line flags only")
+        else:
+            with open(path, "rb") as f:
+                for section, values in tomllib.load(f).items():
+                    if isinstance(values, dict):
+                        cfg.setdefault(section, {}).update(values)
+                    else:
+                        cfg[section] = values
+    for section, key, value in overrides:
+        if value is not None:
+            cfg.setdefault(section, {})[key] = value
+    return cfg
+
+
+# --- state --------------------------------------------------------------------------
+
+errors, warnings = [], []
+
+
+def err(where, msg):
+    errors.append(f"{where}: {msg}")
+
+
+def warn(where, msg):
+    warnings.append(f"{where}: {msg}")
+
+
+class Ctx:
+    """Resolved paths and patterns for one run. Built once in main()."""
+
+    def __init__(self, cfg):
+        p = cfg["paths"]
+        self.cfg = cfg
+        self.research = cfg["profile"]["name"] == "research"
+        self.root = os.path.abspath(p["root"])
+        self.docs = self._abs(p["docs"])
+        self.method = self._abs(p["method"]) if p.get("method") else None
+        self.corpus = self._abs(p["corpus"]) if p.get("corpus") else None
+        self.baseline = self._abs(p["baseline"]) if p.get("baseline") else None
+        self.extra_doc_dirs = [self._abs(d) for d in p.get("extra_doc_dirs", [])]
+        self.path_roots = [self._abs(r) for r in p.get("path_roots", [])]
+        self.path_allow = set(p.get("allow", []))
+        self.root_pointers = [self._abs(f) for f in p.get("root_pointers", [])]
+
+        self.registers = {k: os.path.join(self.docs, v)
+                          for k, v in cfg["registers"].items()
+                          if self.research or k not in RESEARCH_ONLY}
+
+        t = cfg["tasks"]
+        self.task_re = re.compile(rf"^\| ({t['id_pattern']}) \|", re.MULTILINE)
+        self.task_shape = t["id_pattern"]
+        self.backlog = os.path.join(self.docs, t["backlog"])
+        self.plan_dir = os.path.join(self.docs, t["plan_dir"])
+        self.legend_label = t["legend_label"]
+        self.link_prefix = cfg["measurement"]["link_prefix"]
+
+        lb = cfg["labels"]
+        self.labels = lb
+        # A label may carry a qualifier — "Prediction (reconstructed)" — so match the
+        # word and allow anything up to the closing bold marker.
+        self.prediction_block_re = re.compile(
+            rf"^\*\*{re.escape(lb['prediction'])}[^*]*\*\*.*?(?=^\*\*|\Z)",
+            re.DOTALL | re.MULTILINE)
+        self.prediction_field_re = re.compile(
+            rf"\*\*{re.escape(lb['prediction'])}[^*]*\*\*(.*?)(?:\n\*\*|\Z)",
+            re.DOTALL)
+        self.status_open_re = re.compile(
+            rf"\*\*{re.escape(lb['status'])}:\*\*\s*{re.escape(lb['status_open'])}")
+        self.status_refuted_re = re.compile(
+            rf"\*\*{re.escape(lb['status'])}:\*\*\s*{re.escape(lb['status_refuted'])}")
+        self.criterion_label = lb["acceptance_criterion"]
+
+        n = cfg["numbers"]
+        units = "|".join(re.escape(u) for u in n["units"])
+        self.number_re = re.compile(rf"\b\d+(?:[.,]\d+)?\s*({units})\b")
+        metrics = "|".join(re.escape(m) for m in n["metric_names"])
+        self.metric_re = re.compile(rf"\b({metrics})\b", re.IGNORECASE) if metrics \
+            else re.compile(r"(?!)")
+        self.number_allow = n["allow"]
+
+        self.limits = cfg["limits"]
+        self.split_warn = int(self.limits.get("register_split_warn", 60))
+
+    def _abs(self, rel_path):
+        # "" means the root itself — a legitimate entry in path_roots, and not the
+        # same thing as an unset optional path.
+        if rel_path is None:
+            return None
+        return os.path.normpath(os.path.join(self.root, rel_path))
+
+    def rel(self, path):
+        return os.path.relpath(path, self.root).replace("\\", "/")
+
+
+# --- shared patterns ----------------------------------------------------------------
+
+BARE_NUMBER_RE = re.compile(r"\b\d+\.\d+\b")
+# A real path ending in .json, not merely the substring ".json" somewhere in the
+# paragraph — the loose version was trivially satisfiable.
+JSON_REF_RE = re.compile(r"[\w./\\-]+\.json")
+WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)#]+?)(?:#[^)]*)?\)")
+# Where a path with spaces ends is ambiguous in prose, so the convention is: an absolute
+# path in prose must be inside backticks, and then it may contain spaces. A bare path is
+# only recognised when it has none. Fenced blocks are skipped — they hold examples.
+ABS_PATH_BARE_RE = re.compile(r"[A-Za-z]:\\[^\s`'\"<>|)]+")
+ABS_PATH_TICKED_RE = re.compile(r"`([A-Za-z]:\\[^`\n]+)`")
+# A repo-relative path in backticks: at least one slash and a file extension. The slash
+# separates a path from a bare file name, which is a name and not a location.
+REL_PATH_RE = re.compile(r"`([\w.][\w./-]*/[\w./-]*\.[\w]{1,6})`")
+PATH_PLACEHOLDER_CHARS = "<>*{}#"
+# Acceptance criteria that hedge instead of stating a number. A warning: some criteria
+# are legitimately qualitative, but "noticeably better" is not one.
+HEDGE_RE = re.compile(r"\b(noticeably|measurable|faster than|better than|more steadily"
+                      r"|significantly|substantially)\b", re.IGNORECASE)
+# The lead-in a generator writes into every Prediction block; it cannot count as one.
+BOILERPLATE_BULLET_RE = re.compile(r"Threshold:\s*computed by", re.IGNORECASE)
+
+
+def md_files(base):
+    if not base or not os.path.isdir(base):
+        return
+    for dirpath, _, names in os.walk(base):
+        for n in sorted(names):
+            if n.endswith(".md"):
+                yield os.path.join(dirpath, n)
+
+
+def read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def strip_code(text):
+    """Drop fenced blocks and HTML comments — both hold examples, not live content.
+
+    Comments matter as much as fences here: a template ships its entry skeleton inside
+    one, and without this the linter reads the skeleton as a real entry — reporting a
+    freshly-copied template as broken, and making the experiment tool allocate E02 for
+    the first experiment in a project.
+    """
+    text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+
+
+def linted_docs(ctx):
+    """Every markdown the linter is responsible for."""
+    paths = list(md_files(ctx.docs))
+    paths += list(md_files(ctx.method))
+    for d in ctx.extra_doc_dirs:
+        paths += list(md_files(d))
+    paths += [f for f in ctx.root_pointers if os.path.exists(f)]
+    return paths
+
+
+def resolve_rel_path(ctx, token, doc_dir):
+    """True if a repo-relative path resolves against any of the known roots."""
+    for root in ctx.path_roots + [doc_dir]:
+        if os.path.exists(os.path.join(root, token)):
+            return True
+    return False
+
+
+# --- inventories --------------------------------------------------------------------
+
+def register_ids(ctx, prefix):
+    path = ctx.registers[prefix]
+    if not os.path.exists(path):
+        return set(), set()
+    text = strip_code(read(path))
+    headings = set(re.findall(rf"^## ({prefix}\d+)\s*[.:]", text, re.MULTILINE))
+    index = set(re.findall(rf"^- \*\*({prefix}\d+)\*\*", text, re.MULTILINE))
+    return headings, index
+
+
+def task_ids(ctx):
+    if not os.path.exists(ctx.backlog):
+        return set()
+    return set(ctx.task_re.findall(strip_code(read(ctx.backlog))))
+
+
+def corpus_ids(ctx):
+    if not ctx.corpus or not os.path.exists(ctx.corpus):
+        return set()
+    return set(re.findall(r"^## ([a-z0-9][a-z0-9-]*)\s*$", strip_code(read(ctx.corpus)),
+                          re.MULTILINE))
+
+
+def delta_ids(ctx):
+    if not ctx.method:
+        return set()
+    path = os.path.join(ctx.method, "DELTA.md")
+    if not os.path.exists(path):
+        return set()
+    return set(re.findall(r"^## (D\d+)\.", strip_code(read(path)), re.MULTILINE))
+
+
+# --- checks -------------------------------------------------------------------------
+
+def known_shape_re(ctx):
+    """An id of one of these shapes is expected to exist.
+
+    Failing to resolve one is a typo, not a forward reference, so it is an error
+    (rule H2). Corpus ids and subsystem pages are the exception — those are
+    legitimately referenced before they exist.
+    """
+    prefixes = "".join(sorted(ctx.registers))
+    return re.compile(rf"^(?:[{prefixes}]\d+|D\d+|{ctx.task_shape})$")
+
+
+def check_links(ctx, known):
+    """1. Broken [[links]] and broken markdown links to files."""
+    shape = known_shape_re(ctx)
+    targets = list(md_files(ctx.docs))
+    if ctx.corpus and os.path.exists(ctx.corpus):
+        targets.append(ctx.corpus)
+    # [[wikilinks]] only in the docs: a method folder holds placeholders like [[E##]]
+    # that are samples. Its *file* links are checked below all the same — a rotting path
+    # there is no less broken for living in the method folder.
+    for path in targets:
+        text = strip_code(read(path))
+        for target in WIKILINK_RE.findall(text):
+            if target in known:
+                continue
+            if target.startswith("subsystems/"):
+                if not os.path.exists(os.path.join(ctx.docs, target + ".md")):
+                    warn(ctx.rel(path),
+                         f"[[{target}]] — subsystem page does not exist yet")
+            elif target.startswith(ctx.link_prefix + ":"):
+                warn(ctx.rel(path),
+                     f"[[{target}]] — configuration not registered in the corpus")
+            elif shape.match(target):
+                err(ctx.rel(path),
+                    f"[[{target}]] — looks like an id but resolves to nothing")
+            else:
+                warn(ctx.rel(path), f"[[{target}]] — does not resolve to any known entry")
+
+    for path in linted_docs(ctx):
+        for target in MD_LINK_RE.findall(strip_code(read(path))):
+            if target.startswith(("http://", "https://", "mailto:")):
+                continue
+            resolved = os.path.normpath(os.path.join(os.path.dirname(path), target))
+            if not os.path.exists(resolved):
+                err(ctx.rel(path), f"broken link -> {target}")
+
+
+STOPWORDS = {"with", "that", "this", "from", "into", "when", "does", "have", "than"}
+
+
+def significant_words(s):
+    # Letters of any script, not [a-z]: an ASCII-only pattern matches nothing in a
+    # document set written in Russian, Greek or Japanese, so every index line "shares
+    # no words" with its heading and the check fires on every entry in the file.
+    return {w for w in re.findall(r"[^\W\d_]{4,}", s.lower())} - STOPWORDS
+
+
+def check_index_titles(ctx, prefix, path):
+    """3. An index line that shares nothing with its entry's heading.
+
+    A warning, not an error: titles are prose and may legitimately be reworded. But an
+    index line describing something else entirely is how an index quietly stops being a
+    map of the file.
+    """
+    text = strip_code(read(path))
+    # Index lines differ in shape between registers (gotchas carry a title, experiments
+    # carry status and task too), so take the whole remainder of the line and test for
+    # any overlap rather than trying to parse fields out of it.
+    headings = dict(re.findall(rf"^## ({prefix}\d+)\s*[.:] (.+)$", text, re.MULTILINE))
+    index = dict(re.findall(rf"^- \*\*({prefix}\d+)\*\*(.*)$", text, re.MULTILINE))
+    for eid, title in index.items():
+        heading = headings.get(eid)
+        if heading and not (significant_words(title) & significant_words(heading)):
+            warn(ctx.rel(path), f"{eid}: index line and heading share no words — "
+                                f"'{title.strip()[:40]}' vs '{heading.strip()[:40]}'")
+
+
+def check_registers(ctx):
+    """2. Index against headings, and gaps in numbering."""
+    for prefix, path in ctx.registers.items():
+        if not os.path.exists(path):
+            continue
+        headings, index = register_ids(ctx, prefix)
+        # A register holding numbered entries under some other scheme — "## 7. Something"
+        # instead of "## G07. Something" — parses as empty, and every check below then
+        # passes by finding nothing, which reads as approval. Tested on the numbering
+        # rather than on file length: a register created ahead of its first entry, with
+        # an explanatory preamble, is legitimate and must stay quiet.
+        if not headings and not index:
+            foreign = re.findall(r"^## (\d+|[A-Z]{1,2}\d+)\s*[.:]",
+                                 strip_code(read(path)), re.MULTILINE)
+            if foreign:
+                warn(ctx.rel(path),
+                     f"{len(foreign)} numbered entries, none of them {prefix}## — "
+                     f"entries are headed '## {prefix}01. Title'. A register in another "
+                     f"format is silently not checked at all")
+            continue
+        # A register with entries and no index at all is one defect, not one per entry.
+        # Reporting it forty times buries everything else in the run.
+        if headings and not index:
+            err(ctx.rel(path), f"{len(headings)} entries and no index — a growing "
+                               f"register opens with one line per entry, or it cannot "
+                               f"be surveyed without reading it whole")
+        else:
+            for missing in sorted(headings - index):
+                err(ctx.rel(path), f"{missing} has an entry but no index line")
+            for missing in sorted(index - headings):
+                err(ctx.rel(path), f"{missing} is indexed but has no entry")
+        check_index_titles(ctx, prefix, path)
+        nums = sorted(int(i[1:]) for i in headings)
+        if nums and nums != list(range(1, len(nums) + 1)):
+            gaps = sorted(set(range(1, max(nums) + 1)) - set(nums))
+            err(ctx.rel(path), f"gap in {prefix}## numbering: {gaps} — a deleted entry?")
+
+
+def check_register_size(ctx):
+    """8. A register grown past the point where its index is still scannable."""
+    for prefix, path in ctx.registers.items():
+        if not os.path.exists(path):
+            continue
+        n = len(register_ids(ctx, prefix)[0])
+        if n > ctx.split_warn:
+            warn(ctx.rel(path), f"{n} entries (over {ctx.split_warn}) — time to split "
+                                f"the register by area; see 'Scaling' in RULES.md")
+
+
+def check_line_limits(ctx):
+    """4. Line limits for start.md and status.md."""
+    for name, limit in ctx.limits.items():
+        if name == "register_split_warn":
+            continue
+        path = os.path.join(ctx.docs, name)
+        if not os.path.exists(path):
+            continue
+        n = len(read(path).splitlines())
+        if n > int(limit):
+            err(ctx.rel(path), f"{n} lines, limit {limit}")
+
+
+def check_absolute_paths(ctx):
+    """5. Absolute paths outside the repository, checked for existence.
+
+    This is how a pointer to the standard rotted in one project: the path sat in prose
+    rather than in a link, so a markdown-link check missed it, for months, in the file
+    that governs all the others.
+    """
+    for path in linted_docs(ctx):
+        text = strip_code(read(path))
+        ticked = [m.group(1) for m in ABS_PATH_TICKED_RE.finditer(text)]
+        bare = [m.group(0) for m in
+                ABS_PATH_BARE_RE.finditer(ABS_PATH_TICKED_RE.sub("", text))]
+        for target in ticked:
+            target = target.rstrip(".,;: ")
+            if any(c in target for c in PATH_PLACEHOLDER_CHARS):
+                continue
+            if not os.path.exists(target):
+                err(ctx.rel(path), f"absolute path does not exist: {target}")
+        for target in bare:
+            target = target.rstrip(".,;: ")
+            if os.path.exists(target) or any(c in target
+                                             for c in PATH_PLACEHOLDER_CHARS):
+                continue
+            # A bare path stops at the first space, and a project root may contain one.
+            # Reporting a correct path as an error is worse than asking for backticks,
+            # so if the truncation point is a real directory, say so.
+            if os.path.isdir(os.path.dirname(target)) and not os.path.isdir(target):
+                warn(ctx.rel(path), f"absolute path may be truncated at a space: "
+                                    f"{target} — write it in backticks so it can be "
+                                    f"checked")
+            else:
+                err(ctx.rel(path), f"absolute path does not exist: {target}")
+
+
+def check_rel_paths(ctx):
+    """6. Repo-relative paths in backticks, checked for existence."""
+    for path in linted_docs(ctx):
+        doc_dir = os.path.dirname(path)
+        for token in REL_PATH_RE.findall(strip_code(read(path))):
+            if any(c in token for c in PATH_PLACEHOLDER_CHARS) \
+                    or token.startswith("/") or token in ctx.path_allow:
+                continue  # a placeholder, an absolute device path, or a declared absence
+            if not resolve_rel_path(ctx, token, doc_dir):
+                err(ctx.rel(path), f"path does not exist anywhere: {token}")
+
+
+def check_journal_index(ctx):
+    """7. The journal index against its own entries — it grows fastest of all."""
+    path = os.path.join(ctx.docs, "journal.md")
+    if not os.path.exists(path):
+        return
+    text = strip_code(read(path))
+    # Counted, not set-compared: when several entries share a date, comparing sets makes
+    # a missing index line for one of them invisible.
+    entries = Counter(re.findall(r"^## (\d{4}-\d{2}-\d{2})\b", text, re.MULTILINE))
+    indexed = Counter(re.findall(r"^- \*\*(\d{4}-\d{2}-\d{2})\*\*", text, re.MULTILINE))
+    for date in sorted(set(entries) | set(indexed)):
+        if entries[date] != indexed[date]:
+            err(ctx.rel(path), f"{date}: {entries[date]} entr(ies) but "
+                               f"{indexed[date]} index line(s)")
+
+
+# --- research-profile checks --------------------------------------------------------
+
+def check_backlog_statuses(ctx):
+    """9. Every backlog status belongs to the legend the file declares."""
+    if not os.path.exists(ctx.backlog):
+        return
+    text = strip_code(read(ctx.backlog))
+    m = re.search(re.escape(ctx.legend_label) + r"\s*([^.\n]+)", text)
+    if not m:
+        err(ctx.rel(ctx.backlog),
+            f"no '{ctx.legend_label}' line — statuses cannot be validated")
+        return
+    legend = {clean_cell(s) for s in re.split(r"[/,]", m.group(1)) if clean_cell(s)}
+    col = status_column(text)
+    for line in text.splitlines():
+        row = ctx.task_re.match(line)
+        if not row:
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if col is None or col >= len(cells):
+            continue
+        head = re.split(r"[\s(—-]", clean_cell(cells[col]), 1)[0].strip()
+        if head and head not in legend:
+            err(ctx.rel(ctx.backlog), f"{row.group(1)}: status '{head}' is not in the "
+                                      f"legend ({', '.join(sorted(legend))})")
+
+
+def clean_cell(s):
+    """A table cell or legend item without markdown emphasis, backticks or padding.
+
+    Stripped repeatedly rather than in a fixed order: `**Status legend:** `open`` leaves
+    whitespace between the emphasis and the backtick, and a single pass gives up there.
+    """
+    prev = None
+    while prev != s:
+        prev = s
+        s = s.strip().strip("*").strip("`")
+    return s
+
+
+def status_column(text):
+    """Index of the status column, read from the table header.
+
+    Positional assumptions do not survive contact with other people's tables — a
+    backlog whose columns are id / status / task / phase would otherwise have its
+    *phase* validated against the status legend. Falls back to the last column, which
+    is the only sensible guess when no header names a status.
+    """
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        cells = [clean_cell(c).lower() for c in line.strip().strip("|").split("|")]
+        for i, c in enumerate(cells):
+            if c in ("status", "state"):
+                return i
+        if any(cells):
+            return len(cells) - 1  # first table row, no status header: guess the last
+    return None
+
+
+def check_done_tasks(ctx):
+    """10. A backlog task marked done with no journal entry."""
+    journal = os.path.join(ctx.docs, "journal.md")
+    if not (os.path.exists(ctx.backlog) and os.path.exists(journal)):
+        return
+    # Anchored to journal headings, not to the id appearing anywhere in the file: a
+    # passing mention inside some other entry is not a record of the work.
+    headings = "\n".join(re.findall(r"^## .*$", read(journal), re.MULTILINE))
+    for line in read(ctx.backlog).splitlines():
+        m = ctx.task_re.match(line)
+        if m and re.search(r"\|\s*done\b", line) and not re.search(
+                rf"^## .*\b{re.escape(m.group(1))}\b", headings, re.MULTILINE):
+            err(ctx.rel(ctx.backlog),
+                f"{m.group(1)} is done but no journal.md entry is headed with it")
+
+
+def check_reports(ctx, ids):
+    """11. Required fields of every measurement report, and its id against the register."""
+    if not ctx.baseline or not os.path.isdir(ctx.baseline):
+        return
+    field = ctx.cfg["measurement"]["id_field"]
+    raw_dir = ctx.cfg["measurement"]["raw_dir"]
+    for dirpath, _, names in os.walk(ctx.baseline):
+        # raw/ holds the reports a baseline was curated from, kept so the result can be
+        # re-derived. They are inputs, not stored measurements.
+        if raw_dir and os.path.basename(dirpath) == raw_dir:
+            continue
+        for n in sorted(names):
+            if not n.endswith(".json"):
+                continue
+            path = os.path.join(dirpath, n)
+            try:
+                data = json.loads(read(path))
+            except json.JSONDecodeError as e:
+                err(ctx.rel(path), f"invalid JSON: {e}")
+                continue
+            # null is a legitimate value (a baseline has no experiment); a missing key
+            # is not.
+            for required in ctx.cfg["measurement"]["required_fields"]:
+                if required not in data:
+                    err(ctx.rel(path), f"required field '{required}' is missing")
+            cid = data.get(field)
+            if cid is None:
+                err(ctx.rel(path), f"{field} is null — a stored measurement must name "
+                                   f"its configuration")
+            elif cid not in ids:
+                err(ctx.rel(path), f"{field} '{cid}' is not registered in corpus.md")
+            elif os.path.basename(dirpath) != cid:
+                err(ctx.rel(path), f"{field} '{cid}' does not match its directory")
+
+
+def check_corpus_index(ctx, ids):
+    """12. The corpus index against the configurations that parse as registered.
+
+    Planned configurations are deliberately prose rather than `## <id>` headings: a
+    heading would make the harness accept a configuration that has no data and no
+    baseline. The index must therefore separate the two, and its Registered rows must
+    match reality.
+    """
+    if not ctx.corpus or not os.path.exists(ctx.corpus):
+        return
+    text = strip_code(read(ctx.corpus))
+    m = re.search(r"^##+\s*Registered\b(.*?)(?=^##+\s|\Z)", text,
+                  re.DOTALL | re.MULTILINE)
+    if m:
+        scope = m.group(1)
+    else:
+        # A register with no planned configurations needs no split, and demanding the
+        # heading anyway is ceremony. Fall back to the whole index: the mismatch check
+        # below is what actually catches a planned configuration written as a heading.
+        head = re.search(r"^##+\s*\S+.*?$(.*?)(?=^---|\Z)", text,
+                         re.DOTALL | re.MULTILINE)
+        scope = head.group(1) if head else text
+        warn(ctx.rel(ctx.corpus),
+             "index has no 'Registered' section — planned and registered configurations "
+             "cannot be told apart; fine if nothing here is planned")
+    listed = set(re.findall(r"[|-]\s*\*{0,2}`?([a-z0-9][a-z0-9-]*)`?\*{0,2}\s*[|·—-]",
+                            scope))
+    for missing in sorted(ids - listed):
+        err(ctx.rel(ctx.corpus),
+            f"'{missing}' has an entry but is not in the Registered index")
+    for missing in sorted(listed - ids):
+        err(ctx.rel(ctx.corpus),
+            f"'{missing}' is listed as Registered but has no '## {missing}' entry")
+
+
+def report_id(ctx, ref, doc_dir):
+    """The configuration a referenced report actually belongs to."""
+    field = ctx.cfg["measurement"]["id_field"]
+    for root in ctx.path_roots + [doc_dir]:
+        candidate = os.path.join(root, ref)
+        if os.path.exists(candidate):
+            try:
+                with open(candidate, encoding="utf-8") as f:
+                    return json.load(f).get(field)
+            except (json.JSONDecodeError, OSError):
+                return None
+    return None
+
+
+def check_numbers(ctx, ids):
+    """13. Result numbers with no link to a source.
+
+    Checked per line, not per paragraph: a paragraph-wide test lets one allow-phrase or
+    one unrelated .json anywhere in a bullet list excuse every number in it. The link
+    may wrap onto a neighbouring line, but no further.
+    """
+    paths = [os.path.join(ctx.docs, n) for n in ctx.cfg["numbers"]["result_files"]]
+    if ctx.corpus:
+        paths.append(ctx.corpus)
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        doc_dir = os.path.dirname(path)
+        text = strip_code(read(path))
+        # A prediction is exempt as a *block* — from "**Prediction.**" to the next bold
+        # marker — not as a paragraph. Its bullets are often separated by a blank line,
+        # and a paragraph-scoped exemption made the correct format fail, which taught
+        # people to paste a fake .json reference.
+        exempt = set()
+        for m in ctx.prediction_block_re.finditer(text):
+            exempt.update(range(m.start(), m.end()))
+        lines = text.splitlines(keepends=True)
+        offset = 0
+        for i, line in enumerate(lines):
+            here, offset = offset, offset + len(line)
+            has_metric = bool(ctx.metric_re.search(line))
+            numeric = ctx.number_re.search(line) or (has_metric
+                                                     and BARE_NUMBER_RE.search(line))
+            if not numeric or here in exempt:
+                continue
+            # An allow-phrase excuses prose, not a metric. "Beat the acceptance
+            # criterion: 31.02 ms p50" used to pass on the strength of the phrase.
+            if not has_metric and any(a in line for a in ctx.number_allow):
+                continue
+            window = "".join(lines[max(0, i - 1):i + 2])
+            refs = [j for j in JSON_REF_RE.findall(window)
+                    if resolve_rel_path(ctx, j, doc_dir)]
+            if not refs:
+                err(f"{ctx.rel(path)}:{i + 1}",
+                    f"number with no link to an existing source: {line.strip()[:70]}")
+                continue
+            # Relevance, not just presence. The configuration a text is *about*, not the
+            # one spelled inside the path it cites: a baseline filename contains its own
+            # id, which would otherwise vouch for itself. The defect this exists for was
+            # a figure about one configuration backed by another's baseline.
+            prose = JSON_REF_RE.sub("", window)
+            named = {c for c in ids if c in prose}
+            for ref in refs:
+                linked = report_id(ctx, ref, doc_dir)
+                if named and linked and linked not in named:
+                    err(f"{ctx.rel(path)}:{i + 1}",
+                        f"number cites {os.path.basename(ref)} ('{linked}') while the "
+                        f"text is about {', '.join(sorted(named))}")
+
+
+def entry_bodies(text, prefix):
+    """Yield (id, body) for every entry in a register, in file order."""
+    marks = list(re.finditer(rf"^## ({prefix}\d+)\s*[.:]", text, re.MULTILINE))
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        yield m.group(1), text[m.end():end]
+
+
+def check_refuted_backlinks(ctx):
+    """14. A refuted E## with no back-link from a plan file."""
+    path = ctx.registers.get("E")
+    if not path or not os.path.exists(path):
+        return
+    text = strip_code(read(path))
+    plan_text = "".join(strip_code(read(p)) for p in md_files(ctx.plan_dir))
+    for eid, body in entry_bodies(text, "E"):
+        if ctx.status_refuted_re.search(body) and f"[[{eid}]]" not in plan_text:
+            err(ctx.rel(path), f"{eid} is refuted but no plan file carries "
+                               f"'do not do this — [[{eid}]]'")
+
+
+def check_predictions(ctx):
+    """15. An E## that is not open, with an empty prediction."""
+    path = ctx.registers.get("E")
+    if not path or not os.path.exists(path):
+        return
+    text = strip_code(read(path))
+    for eid, body in entry_bodies(text, "E"):
+        if ctx.status_open_re.search(body):
+            continue
+        m = ctx.prediction_field_re.search(body)
+        # Neither the lead-in line nor a generated threshold bullet proves anything:
+        # both are written by the tool itself. A prediction is a statement naming a
+        # quantity or a configuration — something a measurement can later contradict.
+        body_lines = m.group(1).splitlines() if m else []
+        raw_bullets = [l for l in body_lines if l.strip().startswith(("-", "*"))]
+        if raw_bullets:
+            candidates = [l for l in raw_bullets if not BOILERPLATE_BULLET_RE.search(l)]
+        else:
+            # A prediction written as prose rather than as a list is still a prediction.
+            # Requiring bullets would fail a correct entry, and the lesson people take
+            # from that is to satisfy the shape rather than to state a number.
+            candidates = [l for l in body_lines if l.strip()]
+        substantive = [l for l in candidates
+                       if re.search(r"\d", l) or f"[[{ctx.link_prefix}:" in l]
+        if not substantive:
+            err(ctx.rel(path), f"{eid} has a verdict but no actual prediction — the "
+                               f"Prediction block needs a bullet naming a quantity or a "
+                               f"configuration, see rule H7")
+
+
+def check_acceptance_criteria(ctx):
+    """16. An acceptance criterion that hedges instead of stating a number.
+
+    A warning, not an error: a criterion can be legitimately qualitative ("the picture
+    matches the reference"), but a hedge word with no figure beside it is the kind that
+    cannot settle an argument later.
+    """
+    if not os.path.isdir(ctx.plan_dir):
+        return
+    for path in md_files(ctx.plan_dir):
+        lines = read(path).splitlines()
+        for i, line in enumerate(lines):
+            marker = f"**{ctx.criterion_label}:**"
+            if marker not in line:
+                continue
+            block = " ".join(lines[i:i + 3])
+            # Metric names carry digits of their own (p99, ft_p50), so strip them before
+            # asking whether the criterion states a figure.
+            if HEDGE_RE.search(block) and not re.search(r"\d",
+                                                        ctx.metric_re.sub("", block)):
+                warn(f"{ctx.rel(path)}:{i + 1}",
+                     "acceptance criterion hedges without a figure: "
+                     + line.split(marker)[-1].strip()[:60])
+
+
+# --- entry point --------------------------------------------------------------------
+
+def main():
+    ap = argparse.ArgumentParser(description="Lint an ai_docs/ document set.")
+    ap.add_argument("--config", default=os.path.join(os.path.dirname(__file__),
+                                                     "lint_docs.toml"))
+    ap.add_argument("--root", help="project root (default: from config)")
+    ap.add_argument("--docs", help="path to ai_docs/, relative to root")
+    ap.add_argument("--profile", choices=["engineering", "research"])
+    args = ap.parse_args()
+
+    # If --docs is given as an absolute path, treat its parent as the root: the common
+    # case is linting someone else's project without writing a config for it.
+    root, docs = args.root, args.docs
+    if docs and os.path.isabs(docs):
+        root, docs = root or os.path.dirname(os.path.abspath(docs)), \
+            os.path.basename(os.path.normpath(docs))
+
+    cfg = load_config(args.config, [
+        ("paths", "root", root),
+        ("paths", "docs", docs),
+        ("profile", "name", args.profile),
+    ])
+    ctx = Ctx(cfg)
+
+    # The docs are UTF-8 and quote their own content back in messages, but a Windows
+    # console defaults to a legacy code page and raises UnicodeEncodeError on the first
+    # em dash. A linter that dies while reporting is worse than no linter, so degrade
+    # the output instead of the process.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+
+    if not os.path.isdir(ctx.docs):
+        print(f"ERROR    no such directory: {ctx.docs}")
+        sys.exit(1)
+
+    ids = corpus_ids(ctx) if ctx.research else set()
+    known = set()
+    for prefix in ctx.registers:
+        known |= register_ids(ctx, prefix)[0]
+    known |= task_ids(ctx) | delta_ids(ctx)
+    known |= {f"{ctx.link_prefix}:{c}" for c in ids}
+
+    check_links(ctx, known)
+    check_registers(ctx)
+    check_register_size(ctx)
+    check_line_limits(ctx)
+    check_absolute_paths(ctx)
+    check_rel_paths(ctx)
+    check_journal_index(ctx)
+    if ctx.research:
+        check_backlog_statuses(ctx)
+        check_done_tasks(ctx)
+        check_reports(ctx, ids)
+        check_corpus_index(ctx, ids)
+        check_numbers(ctx, ids)
+        check_refuted_backlinks(ctx)
+        check_predictions(ctx)
+        check_acceptance_criteria(ctx)
+
+    for w in warnings:
+        print(f"warning  {w}")
+    for e in errors:
+        print(f"ERROR    {e}")
+    print(f"\n{len(errors)} error(s), {len(warnings)} warning(s) "
+          f"[{cfg['profile']['name']} profile]")
+    sys.exit(1 if errors else 0)
+
+
+if __name__ == "__main__":
+    main()
