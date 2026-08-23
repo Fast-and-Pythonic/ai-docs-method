@@ -1,18 +1,6 @@
-This repository is dual-licensed.
-
-DOCUMENTATION (all .md files)
-=============================
-Creative Commons Attribution 4.0 International (CC BY 4.0)
-https://creativecommons.org/licenses/by/4.0/
-
-You are free to share and adapt the material for any purpose, including
-commercially, provided you give appropriate credit.
-
-CODE (everything under tools/)
-==============================
 MIT License
 
-Copyright (c) 2026 the ai-docs-method contributors
+Copyright (c) 2026 Fast-and-Pythonic
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -826,8 +826,16 @@ def main():
             pass
 
     if not os.path.isdir(ctx.docs):
-        print(f"ERROR    no such directory: {ctx.docs}")
-        sys.exit(1)
+        # An explicitly passed --docs that does not exist is a typo, and worth failing
+        # on. A configured or default path that does not exist means there is simply no
+        # document set here yet — which is the normal state of a project on its first
+        # day, and of any repository that installed the pre-commit hook early. Failing
+        # there teaches people to pass --no-verify, which disables the check for good.
+        if args.docs:
+            print(f"ERROR    no such directory: {ctx.docs}")
+            sys.exit(1)
+        print(f"nothing to lint: {ctx.rel(ctx.docs)} does not exist")
+        sys.exit(0)
 
     ids = corpus_ids(ctx) if ctx.research else set()
     known = set()

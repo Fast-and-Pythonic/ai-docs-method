@@ -13,6 +13,13 @@ python tools/lint_docs.py --docs /path/to/other/ai_docs    # audit another proje
 
 Exit code 0 means clean; warnings are allowed. Exit code 1 means at least one error.
 
+If the configured document set does not exist yet, the linter says so and exits 0 — that
+is the normal state of a project on its first day, and of any repository that installed
+the pre-commit hook before writing anything. A path passed explicitly with `--docs` is
+held to a stricter standard and fails, because there a missing directory is a typo. The
+distinction matters: a hook that blocks a commit for having nothing to check teaches
+people to pass `--no-verify`, and that disables it for good.
+
 Requires Python 3.11+ for `tomllib`. On an older interpreter it still runs, using the
 built-in defaults plus command-line flags, and says so.
 

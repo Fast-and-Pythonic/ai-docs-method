@@ -136,5 +136,6 @@ analyser — and generalised afterwards. It is not a silver bullet and it is not
 
 ## Licence
 
-Documentation text: [CC BY 4.0](LICENSE). Code under `tools/`: MIT. Use it, adapt it,
-fork it; attribution is appreciated and not required for private use.
+[MIT](LICENSE), for the whole repository — the documents as well as the code. Use it,
+adapt it, fork it, ship it in something commercial. Attribution is appreciated and, apart
+from keeping the licence text, not required.
