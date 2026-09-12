@@ -141,7 +141,7 @@ otherwise it is a dead letter within three sessions.
 | H7 | An `E##` whose status is not `open` has a Prediction naming a quantity or a configuration | `new_experiment.py` refuses to open an entry without one; lint checks it. Ordering ("before the run") is enforced by using the tool rather than editing by hand — nothing can verify it after the fact, which is why a reconstructed entry must be marked `retro`. **A `retro` entry is held only to having a prediction at all**: its quality is already declared unverifiable, so demanding a figure of it buys a better-looking reconstruction rather than better evidence | **[R]** |
 | H8 | A measurement number appears only as a headline line linking to its report | lint: a number with a unit in a line with no path ending in `.json` | **[R]** |
 | H9 | A refuted `E##` has a back-link from the task that tempted it | lint: presence of the back-link | **[R]** |
-| H10 | `_meta.md` exists and names the standard the documents are kept to, with the version they were last audited against | lint: the file is present and carries a resolvable standard and a version. **Ships as a warning** and is promoted to an error once every consumer is clean — see [DEVIATIONS.md §6](DEVIATIONS.md#6-changing-the-standard-itself) | |
+| H10 | `_meta.md` exists and names the standard the documents are kept to, with the version they were last audited against | lint: the file is present and carries a resolvable standard and a version. Shipped as a warning and **promoted to an error on 2026-09-13**, once every consumer was clean — the release policy in [DEVIATIONS.md §6](DEVIATIONS.md#6-changing-the-standard-itself) working as written, and its first completed cycle | |
 
 **The convention H5 depends on:** an absolute path written in prose goes in backticks,
 and only then may it contain spaces — where an unquoted path with spaces ends is not
@@ -190,7 +190,7 @@ projects this standard came from.
 | 15 | An `E##` whose status is not `open` with no prediction naming a quantity or a configuration; a `retro` entry only has to have one at all | **[R]** |
 | 16 | An acceptance criterion that hedges (`noticeably`, `measurable`, `faster than`) without a figure — a warning | **[R]** |
 | 17 | In a split register whose index is grouped under headings that link to each area's file, every id sits under the section of the file its entry is in. Silent for a flat index. This is what breaks when an entry moves between files and the index is not updated to match | |
-| 18 | `_meta.md` is present, names the standard, and carries the version it was audited against — a **warning** for now (H10). Without it a document set cannot say which rules it is being held to, and a session has to guess | |
+| 18 | `_meta.md` is present, names the standard, and carries the version it was audited against (H10). An **error** since 2026-09-13. Without it a document set cannot say which rules it is being held to, and a session has to guess; without the version, "behind" and "never compliant" look the same | |
 
 Three of these are subtler than they look, and the subtlety is load-bearing. Do not
 simplify them away:

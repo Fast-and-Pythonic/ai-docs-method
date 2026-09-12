@@ -1,5 +1,39 @@
 # tools
 
+## Installing them
+
+Running the scripts by path works, and is what every project's `_meta.md` documents:
+
+```bash
+python <standard>/tools/lint_docs.py --config tools/lint_docs.toml
+```
+
+That is fine on one machine and exactly wrong for a project going public: a contributor
+who clones it gets no checker at all, and the path points into somebody's directory
+layout. So the tools are installable, and then a project depends on a *version* of them
+instead:
+
+```bash
+pipx install git+https://github.com/Fast-and-Pythonic/ai-docs-method
+ai-docs-lint  --config tools/lint_docs.toml
+ai-docs-index --config tools/lint_docs.toml
+```
+
+No dependencies — both are standard library only, so installing them cannot disturb a
+project's own environment. Reading a `lint_docs.toml` wants Python 3.11 for `tomllib`;
+on anything older the tools say so and fall back to defaults and command-line flags
+rather than failing.
+
+**Why the tools may be copied and the prose may not.** The standard is two things, and
+"never copy it" belongs to only one of them. `RULES.md`, `FORMATS.md` and
+`METHODOLOGY.md` are prose: copy those and the copies drift until neither can be
+trusted, which is the disease the method was written against. `lint_docs.py` is code,
+and a second copy of code is not a second source of truth — it is version skew, which
+ordinary release machinery already solves. Pin a version, install it, and the question
+stops being interesting. What is *not* acceptable is the third option, and one project
+had it: a hand-modified copy of the linter, 304 lines running six of eighteen checks,
+reporting a clean run on a document set nobody was checking.
+
 ## `lint_docs.py`
 
 Checks what can be checked about a document set. Backs the hard rules in
