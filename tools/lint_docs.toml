@@ -28,6 +28,11 @@ extra_doc_dirs = []           # other markdown the linter is responsible for, e.
 # area (RULES.md, "Scaling"): the register file keeps the index, the bodies live here.
 # Empty means every register is a single file.
 register_bodies = []
+# Prefixes a local method numbers its departures with. "D" is the standard's own. A
+# project that borrowed departures from a sibling and added its own numbers the two apart
+# — and since borrowed ones collapse once they are promoted into the standard, the rest
+# cannot be renumbered without breaking live [[links]]. List every prefix in use.
+delta_prefixes = ["D"]
 # A documented path is tried against these roots first. Failing that it is looked for as
 # the tail of any path in the tree, because documentation names a file the way a person
 # does — `model/Screen.kt`, not the full path from a source root nobody writes out. List

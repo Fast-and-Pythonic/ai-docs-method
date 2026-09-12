@@ -95,7 +95,7 @@ The table is the process. Without it the structure sits empty.
 | Checked against upstream | `references/upstream-watch.md`: date, range reviewed, verdict | **[E]** |
 | A hypothesis was formed | `experiments.md`: an `E##`, status `open`, **prediction written BEFORE the run** | **[R]** |
 | A measurement was taken | JSON into the baseline tree; headline line in the `E##`; line in `journal.md` | **[R]** |
-| A hypothesis was refuted | Verdict in the `E##` (**never deleted**) plus "do not do this — `[[E##]]`" in the task | **[R]** |
+| A hypothesis was refuted | Verdict in the `E##` (**never deleted**) plus a `[[E##]]` back-link in the task, carrying the lesson. Usually that reads "do not do this"; a hypothesis refuted to the letter of its prediction and adopted in substance needs the pointer just as much, and there the phrase would be false | **[R]** |
 | A backlog task finished | `backlog.md`: status; `journal.md`: entry; `status.md`: Working or Fragile | **[R]** |
 | The run configuration changed | `corpus.md`: a new configuration; old baselines are not rewritten | **[R]** |
 
@@ -138,7 +138,7 @@ otherwise it is a dead letter within three sessions.
 | H4 | Numbering has no gaps; a refuted or cancelled entry is never deleted | lint: gap-free numbering. A gap only appears when an entry is removed from the middle; deleting the **last** entry is invisible to lint and is caught by git history instead | |
 | H5 | An absolute path written in prose points at something that exists | lint: existence check. Depends on the convention below | |
 | H6 | Measure only on a configuration registered in `corpus.md` | lint: every report's `corpus_id` exists in the register and matches its directory | **[R]** |
-| H7 | An `E##` whose status is not `open` has a filled-in Prediction | `new_experiment.py` refuses to open an entry without one; lint checks the field is non-empty. Ordering ("before the run") is enforced by using the tool instead of editing by hand — nothing can verify it after the fact, which is why a reconstructed entry must be marked `retro` | **[R]** |
+| H7 | An `E##` whose status is not `open` has a Prediction naming a quantity or a configuration | `new_experiment.py` refuses to open an entry without one; lint checks it. Ordering ("before the run") is enforced by using the tool rather than editing by hand — nothing can verify it after the fact, which is why a reconstructed entry must be marked `retro`. **A `retro` entry is held only to having a prediction at all**: its quality is already declared unverifiable, so demanding a figure of it buys a better-looking reconstruction rather than better evidence | **[R]** |
 | H8 | A measurement number appears only as a headline line linking to its report | lint: a number with a unit in a line with no path ending in `.json` | **[R]** |
 | H9 | A refuted `E##` has a back-link from the task that tempted it | lint: presence of the back-link | **[R]** |
 | H10 | `_meta.md` exists and names the standard the documents are kept to, with the version they were last audited against | lint: the file is present and carries a resolvable standard and a version. **Ships as a warning** and is promoted to an error once every consumer is clean — see [DEVIATIONS.md §6](DEVIATIONS.md#6-changing-the-standard-itself) | |
@@ -187,7 +187,7 @@ projects this standard came from.
 | 12 | The `corpus.md` index against the configurations that actually parse as registered | **[R]** |
 | 13 | Numbers with no link to a source | **[R]** |
 | 14 | An `E##` with status `refuted` and no back-link from a task | **[R]** |
-| 15 | An `E##` whose status is not `open` with an empty prediction | **[R]** |
+| 15 | An `E##` whose status is not `open` with no prediction naming a quantity or a configuration; a `retro` entry only has to have one at all | **[R]** |
 | 16 | An acceptance criterion that hedges (`noticeably`, `measurable`, `faster than`) without a figure — a warning | **[R]** |
 | 17 | In a split register whose index is grouped under headings that link to each area's file, every id sits under the section of the file its entry is in. Silent for a flat index. This is what breaks when an entry moves between files and the index is not updated to match | |
 | 18 | `_meta.md` is present, names the standard, and carries the version it was audited against — a **warning** for now (H10). Without it a document set cannot say which rules it is being held to, and a session has to guess | |

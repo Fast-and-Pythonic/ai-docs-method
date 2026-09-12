@@ -43,6 +43,11 @@ DEFAULTS = {
         # been split by area (RULES.md, "Scaling"): the register file keeps the index,
         # the bodies move under these. Empty means every register is a single file.
         "register_bodies": [],
+        # Prefixes a local method numbers its departures with. `D` is the standard's own
+        # (DEVIATIONS.md), but a project that borrowed some departures from a sibling and
+        # added others of its own numbers the two apart — and the borrowed ones collapse
+        # when they are promoted, so renumbering the rest would break live links.
+        "delta_prefixes": ["D"],
         "path_roots": ["", "ai_docs"],
         # Directories never searched when resolving a documented path. Generated trees
         # are orders of magnitude larger than the source they come from, and a path that
@@ -100,6 +105,10 @@ DEFAULTS = {
         "status": "Status",
         "status_open": "open",
         "status_refuted": "refuted",
+        # A prediction reconstructed after the run. The marker exists because nothing can
+        # verify that such a prediction was not fitted to the outcome, which is also why
+        # it is not held to the "name a quantity" bar — see check_predictions.
+        "status_retro": "retro",
         "acceptance_criterion": "Acceptance criterion",
         # The line in _meta.md that names the standard these documents are kept to.
         "standard": "Standard",
@@ -204,6 +213,7 @@ class Ctx:
         self.extra_doc_dirs = [self._abs(d) for d in p.get("extra_doc_dirs", [])]
         self.register_bodies = [os.path.normpath(os.path.join(self.docs, d))
                                 for d in p.get("register_bodies", [])]
+        self.delta_prefixes = list(p.get("delta_prefixes", ["D"])) or ["D"]
         self.path_roots = [self._abs(r) for r in p.get("path_roots", [])]
         self.ignore_dirs = set(p.get("ignore_dirs", []))
         self._tree = None  # built on first use; see known_paths()
@@ -237,6 +247,7 @@ class Ctx:
             rf"\*\*{re.escape(lb['status'])}:\*\*\s*{re.escape(lb['status_open'])}")
         self.status_refuted_re = re.compile(
             rf"\*\*{re.escape(lb['status'])}:\*\*\s*{re.escape(lb['status_refuted'])}")
+        self.status_retro_re = re.compile(re.escape(lb.get("status_retro", "retro")))
         self.criterion_label = lb["acceptance_criterion"]
 
         n = cfg["numbers"]
@@ -452,7 +463,10 @@ def delta_ids(ctx):
     path = os.path.join(ctx.method, "DELTA.md")
     if not os.path.exists(path):
         return set()
-    return set(re.findall(r"^## (D\d+)\.", strip_code(read(path)), re.MULTILINE))
+    prefixes = "|".join(re.escape(p) for p in
+                        sorted(ctx.delta_prefixes, key=len, reverse=True))
+    return set(re.findall(rf"^## ((?:{prefixes})\d+)\.", strip_code(read(path)),
+                          re.MULTILINE))
 
 
 # --- checks -------------------------------------------------------------------------
@@ -467,7 +481,9 @@ def known_shape_re(ctx):
     # An alternation, longest first, not a character class: a class would read a
     # two-letter prefix such as EG as "E or G" and never match [[EG07]].
     prefixes = "|".join(sorted(ctx.registers, key=len, reverse=True))
-    return re.compile(rf"^(?:(?:{prefixes})\d+|D\d+|{ctx.task_shape})$")
+    deltas = "|".join(re.escape(p) for p in
+                      sorted(ctx.delta_prefixes, key=len, reverse=True))
+    return re.compile(rf"^(?:(?:{prefixes})\d+|(?:{deltas})\d+|{ctx.task_shape})$")
 
 
 def check_links(ctx, known):
@@ -761,12 +777,20 @@ def check_backlog_statuses(ctx):
     if not os.path.exists(ctx.backlog):
         return
     text = strip_code(read(ctx.backlog))
-    m = re.search(re.escape(ctx.legend_label) + r"\s*([^.\n]+)", text)
+    m = re.search(re.escape(ctx.legend_label) + r"\s*([^\n]+)", text)
     if not m:
         err(ctx.rel(ctx.backlog),
             f"no '{ctx.legend_label}' line — statuses cannot be validated")
         return
-    legend = {clean_cell(s) for s in re.split(r"[/,]", m.group(1)) if clean_cell(s)}
+    # Prefer the backticked items. A legend names its statuses in backticks by house
+    # style, and backticks are unambiguous where a separator is a guess: splitting on a
+    # fixed set of punctuation read a legend joined by "·" as one long item, so every
+    # status in the table was "not in the legend" — nine errors against a correct file,
+    # which is how a check earns being ignored.
+    raw = m.group(1)
+    ticked = re.findall(r"`([^`]+)`", raw)
+    items = ticked or re.split(r"[/,;|·•]", raw)
+    legend = {clean_cell(s) for s in items if clean_cell(s)}
     col = status_column(text)
     for line in text.splitlines():
         row = ctx.task_re.match(line)
@@ -987,8 +1011,15 @@ def check_refuted_backlinks(ctx):
     plan_text = "".join(strip_code(read(p)) for p in md_files(ctx.plan_dir))
     for eid, body in entry_bodies(text, "E"):
         if ctx.status_refuted_re.search(body) and f"[[{eid}]]" not in plan_text:
-            err(ctx.rel(path), f"{eid} is refuted but no plan file carries "
-                               f"'do not do this — [[{eid}]]'")
+            # What the back-link has to say is not fixed. "Refuted" can mean a dead end,
+            # and then it reads "do not do this"; it can also mean refuted to the letter
+            # of the prediction and adopted in substance, and then dictating that wording
+            # would put a falsehood in the plan. What matters is that the task carries the
+            # pointer, because an archive nobody opens at the moment of temptation is not
+            # a defence.
+            err(ctx.rel(path), f"{eid} is refuted and no plan file links to it — the task "
+                               f"that tempted it needs a [[{eid}]] back-link carrying the "
+                               f"lesson, see rule H9")
 
 
 def check_predictions(ctx):
@@ -1013,12 +1044,23 @@ def check_predictions(ctx):
             # Requiring bullets would fail a correct entry, and the lesson people take
             # from that is to satisfy the shape rather than to state a number.
             candidates = [l for l in body_lines if l.strip()]
+        # A reconstructed prediction is held only to being present. The `retro` marker
+        # already says its quality cannot be checked — nothing can verify it was not
+        # fitted to the outcome — so demanding a figure of it buys a better-looking
+        # reconstruction, not better evidence, and the way people satisfy that demand is
+        # to add a number after the fact. A non-retro entry still has to name a quantity.
+        retro = bool(ctx.status_retro_re.search(body))
         substantive = [l for l in candidates
-                       if re.search(r"\d", l) or f"[[{ctx.link_prefix}:" in l]
+                       if retro or re.search(r"\d", l) or f"[[{ctx.link_prefix}:" in l]
         if not substantive:
-            err(ctx.rel(path), f"{eid} has a verdict but no actual prediction — the "
-                               f"Prediction block needs a bullet naming a quantity or a "
-                               f"configuration, see rule H7")
+            if retro:
+                err(ctx.rel(path), f"{eid} is marked retro but its Prediction block is "
+                                   f"empty — a reconstruction still has to say what was "
+                                   f"expected, see rule H7")
+            else:
+                err(ctx.rel(path), f"{eid} has a verdict but no actual prediction — the "
+                                   f"Prediction block needs a bullet naming a quantity or "
+                                   f"a configuration, see rule H7")
 
 
 def check_acceptance_criteria(ctx):

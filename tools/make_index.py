@@ -20,7 +20,8 @@ import os
 import re
 import sys
 
-from lint_docs import Ctx, load_config, md_files, read, register_entries, strip_code
+from lint_docs import (Ctx, load_config, md_files, read, register_entries,
+                       significant_words, strip_code)
 
 # An index line: "- **G07** · Sourcemaps break MAIN-world injection". The separator is
 # cosmetic — lint_docs only requires the "- **ID**" opening — but it stays consistent
@@ -57,6 +58,16 @@ def existing_sep(text):
     return DEFAULT_SEP
 
 
+def existing_lines(text):
+    """id -> the index line as it stands, so a line that is still true can be kept."""
+    out = {}
+    for line in text.splitlines():
+        m = INDEX_LINE_RE.match(line)
+        if m:
+            out.setdefault(m.group(1), line.rstrip())
+    return out
+
+
 def section_heading(ctx, path, target):
     """A heading for an area that has none yet: the file stem, and a link to it."""
     rel = os.path.relpath(target, os.path.dirname(path)).replace("\\", "/")
@@ -73,6 +84,7 @@ def build_block(ctx, prefix, path, text):
     sep = existing_sep(text)
     known = existing_sections(path, text)
     order = list(known)  # areas keep the order a person put them in
+    standing = existing_lines(text)
 
     by_file = {}
     for eid, places in entries.items():
@@ -84,8 +96,28 @@ def build_block(ctx, prefix, path, text):
         if f not in order:
             order.append(f)
 
+    def line_for(eid, title):
+        """Keep the standing line while it is still true; write a fresh one otherwise.
+
+        An index line carries ID, status and title (the standard's glossary), and a
+        project may add fields of its own — a `Portable` mark at the end, a task id in
+        the middle. Regenerating from the heading alone silently drops all of that, so
+        the test for "still true" is the same one lint's check 3 uses: does the line
+        share any significant word with its heading? Nothing is parsed into fields,
+        because the shape differs between registers and between projects.
+
+        A line that shares nothing is a rename that went halfway, which is the one case
+        worth rewriting. Syncing the index is this tool's job; reformatting it is not.
+        """
+        old = standing.get(eid)
+        if old:
+            rest = old.split(f"**{eid}**", 1)[-1]
+            if significant_words(rest) & significant_words(title):
+                return old
+        return f"- **{eid}** {sep} {title}".rstrip()
+
     def lines_for(f):
-        return [f"- **{eid}** {sep} {title}".rstrip()
+        return [line_for(eid, title)
                 for eid, title in sorted(by_file[f], key=lambda p: entry_num(p[0]))]
 
     if len(by_file) == 1:
