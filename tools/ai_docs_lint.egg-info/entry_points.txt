@@ -1,3 +1,0 @@
-[console_scripts]
-ai-docs-index = make_index:main
-ai-docs-lint = lint_docs:main

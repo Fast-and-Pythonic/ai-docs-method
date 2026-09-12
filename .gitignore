@@ -1,3 +1,10 @@
 __pycache__/
 *.pyc
 lint_docs.local.toml
+
+# Артефакты сборки пакета. Оба каталога создаёт `pip install .`, и в них лежат
+# копии tools/*.py — то есть именно та вторая копия кода, против которой
+# предупреждает tools/README.md.
+build/
+dist/
+*.egg-info/
