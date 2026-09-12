@@ -37,6 +37,14 @@ The tier column says from which size a file is **expected**. Below that tier it 
 missing, it is unwarranted: a one-area project with no `subsystems/` is complete, not
 half-documented. Above it, an absent file is a gap worth explaining.
 
+**Only `status.md`'s size is enforced.** It is a forcing limit — it exists to refuse an
+append-only chronicle, so the chronicle goes to `journal.md` rather than crowding out the
+state. Every other size in the table is advice, and the linter warns rather than errors:
+measured across six document sets, everything a session always reads comes to about 6k
+tokens, so none of these numbers is defending a context budget and an error raised for
+advice only teaches the reader to ignore the linter. See
+[METHODOLOGY §2.3](METHODOLOGY.md#23-layered-loading).
+
 ### Creating a file
 
 **A file is created on its first real entry, not in advance.** An empty
@@ -126,7 +134,7 @@ otherwise it is a dead letter within three sessions.
 |---|------|-----------|--|
 | H1 | Every register entry has an index line, and every index line has an entry | lint: the set of headings equals the set of index IDs | |
 | H2 | Every `[[link]]` resolves | lint: an unresolved id-shaped link (`G05`, `E01`, `D5`) is an **error** — it is a typo, not a forward reference. Links to planned pages and configurations are warnings | |
-| H3 | `status.md` ≤ 80 lines, `start.md` ≤ 100 | lint: line count | |
+| H3 | `status.md` ≤ 80 lines (120 at tier L) | lint: line count. **The only forcing limit, and the only one that is an error.** It exists to refuse an append-only chronicle, not to save bytes — every other limit in the inventory is advice and warns. See [METHODOLOGY §2.3](METHODOLOGY.md#23-layered-loading) for the measurement that settles it | |
 | H4 | Numbering has no gaps; a refuted or cancelled entry is never deleted | lint: gap-free numbering. A gap only appears when an entry is removed from the middle; deleting the **last** entry is invisible to lint and is caught by git history instead | |
 | H5 | An absolute path written in prose points at something that exists | lint: existence check. Depends on the convention below | |
 | H6 | Measure only on a configuration registered in `corpus.md` | lint: every report's `corpus_id` exists in the register and matches its directory | **[R]** |
@@ -168,7 +176,7 @@ projects this standard came from.
 | 1 | Broken `[[links]]` and broken markdown links to files | |
 | 2 | Index against headings in every register; gaps in numbering. A register with entries and no index at all is reported once, not once per entry; a register whose entries are numbered under some other scheme (`## 7.` rather than `## G07.`) is a warning, because otherwise every check below passes by finding nothing. Once a register is split by area (§6), the bodies are read from every file under `register_bodies`, and an id with an entry in two files is an error | |
 | 3 | Index line and heading that share no words — a warning; a rename probably went halfway | |
-| 4 | Line limits for `start.md` and `status.md`; as a warning, for any glob the config names (`subsystems/*.md`) | |
+| 4 | Line limits. An **error** only for the names in `limits.enforce` — `status.md` by default, the one limit that forces something. Every other limit warns, including globs the config names (`subsystems/*.md`), because "this is getting long" is advice and an error raised for advice trains the reader to ignore the output | |
 | 5 | Absolute paths in prose, checked for existence | |
 | 6 | Repo-relative paths in backticks, checked against a small set of roots | |
 | 7 | `journal.md` index against its entries, counted **per date** | |

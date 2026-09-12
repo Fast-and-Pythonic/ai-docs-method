@@ -58,6 +58,12 @@ E = "experiments.md"
 # default; uncomment it only to hold this project to a figure of its own.
 "start.md" = 100
 # "status.md" = 80
+# Which limits are errors rather than advice. Keep this short. A limit earns a place
+# here by *forcing* something: status.md's exists to refuse an append-only chronicle, so
+# that the chronicle goes to journal.md instead of crowding out the state. No limit here
+# is defending a context budget — measured across six document sets, everything a
+# session always reads comes to roughly 6k tokens, about 3 % of a 200K window.
+enforce = ["status.md"]
 # A glob covers every matching file under docs/ and warns rather than errors — such
 # files grow by design, and the limit says when to split one:
 # "subsystems/*.md" = 150

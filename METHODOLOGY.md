@@ -79,14 +79,33 @@ A large file that is "sometimes needed" is a file the agent will read at the wor
 possible moment, or not at all. Size must match load frequency; when a file outgrows
 its band, split it or move part of it onto a subsystem page.
 
-Size is a function of **two** things, and the second is easy to miss: load frequency, and
-the number of areas the project has. A file that every session reads cannot also be the
-file that accumulates one section per subsystem — it grows precisely with the thing that
-makes it expensive to read. That is why `status.md` and `start.md` have limits at all, and
-why those limits move with the tier rather than staying constant: see
-[RULES.md §6](RULES.md#6-tiers-and-scaling). The fix at every size is the same move —
-what belongs to one area goes on that area's page, and the always-loaded file keeps only
-what crosses areas.
+**The limits are not defending a context budget, and it is worth being exact about
+that.** Measured across the six document sets this standard is kept on, everything a
+session always reads — `start.md`, `status.md`, the top journal entries and the register
+indexes — comes to between 8 and 20 KB, and the heaviest set including `overview.md` is
+about 6k tokens. That is roughly 3 % of a 200K window. No plausible relaxation of these
+numbers would cost anything a reader could notice.
+
+So a limit here has to earn its place some other way, and exactly one of them does.
+**`status.md`'s limit is a forcing function**: its job is to refuse an append-only
+chronicle, so that the chronicle goes to `journal.md` instead of quietly crowding out the
+state. That is principle [2.2](#22-separate-by-volatility) with a mechanism attached, and
+it works — in the two projects where it was applied, the decision log moved out because
+the limit would not accommodate it, not because anyone decided to tidy up. Both then
+settled at 79 and 80 lines of actual state, against three unconstrained document sets
+that came in at 37, 48 and 55. The number is about the natural size of state, not below
+it.
+
+Every other limit is **advice**: "this is getting long, consider splitting it." The
+linter says so — `limits.enforce` names the forcing ones and everything else warns —
+because an error raised for advice teaches the next session to stop reading the output,
+which costs far more than a long `overview.md` ever will.
+
+The growth that does need watching is structural rather than numeric: a file every
+session reads must not be the file that accumulates one section per subsystem. The fix at
+every size is the same move — what belongs to one area goes on that area's page, and the
+always-loaded file keeps only what crosses areas. See
+[RULES.md §6](RULES.md#6-tiers-and-scaling).
 
 ### 2.4. Capture at friction
 

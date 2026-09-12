@@ -58,7 +58,16 @@ DEFAULTS = {
     # and nothing else — see RULES.md, "Tiers and scaling".
     "project": {"tier": "S"},
     "registers": {"G": "gotchas.md", "A": "architecture.md", "E": "experiments.md"},
-    "limits": {"start.md": 100, "status.md": 80, "register_split_warn": 60},
+    "limits": {
+        "start.md": 100,
+        "status.md": 80,
+        "register_split_warn": 60,
+        # Which limits are errors. Only a limit that *forces* something belongs here —
+        # status.md's exists to refuse a chronicle, not to save bytes. Every other limit
+        # warns: it says "this is getting long", which is advice, and an error there is
+        # a linter crying wolf.
+        "enforce": ["status.md"],
+    },
     "numbers": {
         "result_files": ["status.md", "journal.md", "experiments.md", "overview.md"],
         "units": ["ms", "MB/s", "fps", "%", "s"],
@@ -240,6 +249,7 @@ class Ctx:
 
         self.limits = cfg["limits"]
         self.split_warn = int(self.limits.get("register_split_warn", 60))
+        self.enforced_limits = set(self.limits.get("enforce", ["status.md"]))
 
     def _abs(self, rel_path):
         # "" means the root itself — a legitimate entry in path_roots, and not the
@@ -598,28 +608,40 @@ def check_register_size(ctx):
 
 
 def check_line_limits(ctx):
-    """4. Line limits for start.md and status.md — and for any glob the config names.
+    """4. Line limits, as errors where a limit forces something and warnings elsewhere.
 
-    A glob such as "environments/*.md" is a warning, not an error: the files it covers
-    grow by design, and the limit says when to split one, not that it is broken.
+    Only a *forcing* limit is an error, and `limits.enforce` names them. The one that
+    earns it is status.md: its job is to refuse an append-only chronicle, so that the
+    chronicle goes to journal.md instead of crowding out the state nobody can then find.
+    That is a claim about structure, not about size — measured across six document sets,
+    everything a session always reads comes to about 6k tokens, so no limit here is
+    defending a context budget.
+
+    Everything else warns: a glob (`subsystems/*.md`) covers files that grow by design,
+    and a plain name outside `enforce` says "this is getting long", which is advice. An
+    error for advice is a linter crying wolf, and the next session stops reading it.
     """
     for name, limit in ctx.limits.items():
-        if name == "register_split_warn":
+        if name in ("register_split_warn", "enforce"):
             continue
         if any(c in name for c in "*?["):
             paths = [p for p in docs_files(ctx)
                      if fnmatch.fnmatch(
                          os.path.relpath(p, ctx.docs).replace("\\", "/"), name)]
-            report = warn
+            forcing = False
         else:
             paths = [os.path.join(ctx.docs, name)]
-            report = err
+            forcing = name in ctx.enforced_limits
         for path in paths:
             if not os.path.exists(path):
                 continue
             n = len(read(path).splitlines())
             if n > int(limit):
-                report(ctx.rel(path), f"{n} lines, limit {limit}")
+                if forcing:
+                    err(ctx.rel(path), f"{n} lines, limit {limit}")
+                else:
+                    warn(ctx.rel(path), f"{n} lines, over the {limit} this project set "
+                                        f"— advisory, not a defect")
 
 
 def check_absolute_paths(ctx):
