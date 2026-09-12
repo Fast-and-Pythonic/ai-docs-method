@@ -16,6 +16,7 @@
 # the config file.
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -38,6 +39,10 @@ DEFAULTS = {
         "corpus": "ai_docs/corpus.md",
         "baseline": "",
         "extra_doc_dirs": [],
+        # Directories inside docs/ where register entries may live once a register has
+        # been split by area (RULES.md, "Scaling"): the register file keeps the index,
+        # the bodies move under these. Empty means every register is a single file.
+        "register_bodies": [],
         "path_roots": ["", "ai_docs"],
         "root_pointers": ["CLAUDE.md", ".cursorrules",
                           ".github/copilot-instructions.md"],
@@ -102,7 +107,13 @@ def load_config(path, overrides):
         else:
             with open(path, "rb") as f:
                 for section, values in tomllib.load(f).items():
-                    if isinstance(values, dict):
+                    if section == "registers":
+                        # The set of registers is a whole, not a list of overrides: a
+                        # document set with its own prefixes must be able to drop the
+                        # default ones, or G/A/E keep being looked for where they
+                        # never existed.
+                        cfg[section] = dict(values)
+                    elif isinstance(values, dict):
                         cfg.setdefault(section, {}).update(values)
                     else:
                         cfg[section] = values
@@ -138,6 +149,8 @@ class Ctx:
         self.corpus = self._abs(p["corpus"]) if p.get("corpus") else None
         self.baseline = self._abs(p["baseline"]) if p.get("baseline") else None
         self.extra_doc_dirs = [self._abs(d) for d in p.get("extra_doc_dirs", [])]
+        self.register_bodies = [os.path.normpath(os.path.join(self.docs, d))
+                                for d in p.get("register_bodies", [])]
         self.path_roots = [self._abs(r) for r in p.get("path_roots", [])]
         self.path_allow = set(p.get("allow", []))
         self.root_pointers = [self._abs(f) for f in p.get("root_pointers", [])]
@@ -217,13 +230,24 @@ HEDGE_RE = re.compile(r"\b(noticeably|measurable|faster than|better than|more st
 BOILERPLATE_BULLET_RE = re.compile(r"Threshold:\s*computed by", re.IGNORECASE)
 
 
-def md_files(base):
+def md_files(base, skip=()):
     if not base or not os.path.isdir(base):
         return
-    for dirpath, _, names in os.walk(base):
+    skip = [os.path.normpath(s) for s in skip if s]
+    for dirpath, dirs, names in os.walk(base):
+        # A method folder nested inside the docs (a document set that is itself a
+        # repository root has nowhere else to put one) holds placeholders such as
+        # [[E##]]; walked as docs, every one of them reads as a broken link.
+        dirs[:] = [d for d in dirs
+                   if os.path.normpath(os.path.join(dirpath, d)) not in skip]
         for n in sorted(names):
             if n.endswith(".md"):
                 yield os.path.join(dirpath, n)
+
+
+def docs_files(ctx):
+    """Markdown under docs/, minus a method folder nested inside it."""
+    return md_files(ctx.docs, skip=[ctx.method])
 
 
 def read(path):
@@ -245,7 +269,7 @@ def strip_code(text):
 
 def linted_docs(ctx):
     """Every markdown the linter is responsible for."""
-    paths = list(md_files(ctx.docs))
+    paths = list(docs_files(ctx))
     paths += list(md_files(ctx.method))
     for d in ctx.extra_doc_dirs:
         paths += list(md_files(d))
@@ -263,14 +287,54 @@ def resolve_rel_path(ctx, token, doc_dir):
 
 # --- inventories --------------------------------------------------------------------
 
-def register_ids(ctx, prefix):
+def register_entries(ctx, prefix):
+    """Every entry of a register: id -> list of (file, title).
+
+    Bodies live in the register file itself and, once the register has been split by
+    area, in any markdown under `register_bodies`. A list rather than a single file
+    because the same id in two files is a defect this has to be able to report.
+    """
+    path = ctx.registers[prefix]
+    files = [path] if os.path.exists(path) else []
+    for d in ctx.register_bodies:
+        files += [f for f in md_files(d, skip=[ctx.method])
+                  if os.path.normpath(f) != os.path.normpath(path)]
+    entries = {}
+    for f in files:
+        text = strip_code(read(f))
+        for eid, title in re.findall(rf"^## ({prefix}\d+)\s*[.:] ?(.*)$", text,
+                                     re.MULTILINE):
+            entries.setdefault(eid, []).append((f, title))
+    return entries
+
+
+def register_index(ctx, prefix):
+    """The index of a register: id -> (title remainder, section file or None).
+
+    An index may be grouped under headings that link to the file holding that area's
+    bodies — `## Windows — [environments/windows.md](environments/windows.md)`. The
+    file is recorded per line so the linter can hold the index to it.
+    """
     path = ctx.registers[prefix]
     if not os.path.exists(path):
-        return set(), set()
-    text = strip_code(read(path))
-    headings = set(re.findall(rf"^## ({prefix}\d+)\s*[.:]", text, re.MULTILINE))
-    index = set(re.findall(rf"^- \*\*({prefix}\d+)\*\*", text, re.MULTILINE))
-    return headings, index
+        return {}
+    index, section = {}, None
+    for line in strip_code(read(path)).splitlines():
+        if line.startswith("## "):
+            m = MD_LINK_RE.search(line)
+            section = None
+            if m and m.group(1).endswith(".md"):
+                section = os.path.normpath(
+                    os.path.join(os.path.dirname(path), m.group(1)))
+            continue
+        m = re.match(rf"^- \*\*({prefix}\d+)\*\*(.*)$", line)
+        if m:
+            index[m.group(1)] = (m.group(2), section)
+    return index
+
+
+def register_ids(ctx, prefix):
+    return set(register_entries(ctx, prefix)), set(register_index(ctx, prefix))
 
 
 def task_ids(ctx):
@@ -304,14 +368,16 @@ def known_shape_re(ctx):
     (rule H2). Corpus ids and subsystem pages are the exception — those are
     legitimately referenced before they exist.
     """
-    prefixes = "".join(sorted(ctx.registers))
-    return re.compile(rf"^(?:[{prefixes}]\d+|D\d+|{ctx.task_shape})$")
+    # An alternation, longest first, not a character class: a class would read a
+    # two-letter prefix such as EG as "E or G" and never match [[EG07]].
+    prefixes = "|".join(sorted(ctx.registers, key=len, reverse=True))
+    return re.compile(rf"^(?:(?:{prefixes})\d+|D\d+|{ctx.task_shape})$")
 
 
 def check_links(ctx, known):
     """1. Broken [[links]] and broken markdown links to files."""
     shape = known_shape_re(ctx)
-    targets = list(md_files(ctx.docs))
+    targets = list(docs_files(ctx))
     if ctx.corpus and os.path.exists(ctx.corpus):
         targets.append(ctx.corpus)
     # [[wikilinks]] only in the docs: a method folder holds placeholders like [[E##]]
@@ -354,24 +420,40 @@ def significant_words(s):
     return {w for w in re.findall(r"[^\W\d_]{4,}", s.lower())} - STOPWORDS
 
 
-def check_index_titles(ctx, prefix, path):
+def check_index_titles(ctx, path, entries, index):
     """3. An index line that shares nothing with its entry's heading.
 
     A warning, not an error: titles are prose and may legitimately be reworded. But an
     index line describing something else entirely is how an index quietly stops being a
     map of the file.
     """
-    text = strip_code(read(path))
     # Index lines differ in shape between registers (gotchas carry a title, experiments
     # carry status and task too), so take the whole remainder of the line and test for
     # any overlap rather than trying to parse fields out of it.
-    headings = dict(re.findall(rf"^## ({prefix}\d+)\s*[.:] (.+)$", text, re.MULTILINE))
-    index = dict(re.findall(rf"^- \*\*({prefix}\d+)\*\*(.*)$", text, re.MULTILINE))
-    for eid, title in index.items():
-        heading = headings.get(eid)
+    for eid, (title, _) in index.items():
+        if eid not in entries:
+            continue
+        heading = entries[eid][0][1]
         if heading and not (significant_words(title) & significant_words(heading)):
             warn(ctx.rel(path), f"{eid}: index line and heading share no words — "
                                 f"'{title.strip()[:40]}' vs '{heading.strip()[:40]}'")
+
+
+def check_index_sections(ctx, path, entries, index):
+    """17. An index grouped by file: every id sits under the section of its own file.
+
+    Only fires when the index has sections that link to a file; a flat index has
+    nothing to hold it to. This is what breaks when an entry moves between the files
+    of a split register and the index is not updated to match.
+    """
+    for eid, (_, section) in index.items():
+        if section is None or eid not in entries:
+            continue
+        actual = os.path.normpath(entries[eid][0][0])
+        if actual != section:
+            err(ctx.rel(path), f"{eid} is indexed under the section for "
+                               f"{ctx.rel(section)} but its entry is in "
+                               f"{ctx.rel(actual)}")
 
 
 def check_registers(ctx):
@@ -379,7 +461,12 @@ def check_registers(ctx):
     for prefix, path in ctx.registers.items():
         if not os.path.exists(path):
             continue
-        headings, index = register_ids(ctx, prefix)
+        entries, index_lines = register_entries(ctx, prefix), register_index(ctx, prefix)
+        headings, index = set(entries), set(index_lines)
+        for eid, places in sorted(entries.items()):
+            if len(places) > 1:
+                err(ctx.rel(path), f"{eid} has an entry in more than one file: "
+                                   + ", ".join(ctx.rel(f) for f, _ in places))
         # A register holding numbered entries under some other scheme — "## 7. Something"
         # instead of "## G07. Something" — parses as empty, and every check below then
         # passes by finding nothing, which reads as approval. Tested on the numbering
@@ -405,8 +492,9 @@ def check_registers(ctx):
                 err(ctx.rel(path), f"{missing} has an entry but no index line")
             for missing in sorted(index - headings):
                 err(ctx.rel(path), f"{missing} is indexed but has no entry")
-        check_index_titles(ctx, prefix, path)
-        nums = sorted(int(i[1:]) for i in headings)
+        check_index_titles(ctx, path, entries, index_lines)
+        check_index_sections(ctx, path, entries, index_lines)
+        nums = sorted(int(i[len(prefix):]) for i in headings)
         if nums and nums != list(range(1, len(nums) + 1)):
             gaps = sorted(set(range(1, max(nums) + 1)) - set(nums))
             err(ctx.rel(path), f"gap in {prefix}## numbering: {gaps} — a deleted entry?")
@@ -424,16 +512,28 @@ def check_register_size(ctx):
 
 
 def check_line_limits(ctx):
-    """4. Line limits for start.md and status.md."""
+    """4. Line limits for start.md and status.md — and for any glob the config names.
+
+    A glob such as "environments/*.md" is a warning, not an error: the files it covers
+    grow by design, and the limit says when to split one, not that it is broken.
+    """
     for name, limit in ctx.limits.items():
         if name == "register_split_warn":
             continue
-        path = os.path.join(ctx.docs, name)
-        if not os.path.exists(path):
-            continue
-        n = len(read(path).splitlines())
-        if n > int(limit):
-            err(ctx.rel(path), f"{n} lines, limit {limit}")
+        if any(c in name for c in "*?["):
+            paths = [p for p in docs_files(ctx)
+                     if fnmatch.fnmatch(
+                         os.path.relpath(p, ctx.docs).replace("\\", "/"), name)]
+            report = warn
+        else:
+            paths = [os.path.join(ctx.docs, name)]
+            report = err
+        for path in paths:
+            if not os.path.exists(path):
+                continue
+            n = len(read(path).splitlines())
+            if n > int(limit):
+                report(ctx.rel(path), f"{n} lines, limit {limit}")
 
 
 def check_absolute_paths(ctx):
@@ -813,6 +913,14 @@ def main():
         ("paths", "docs", docs),
         ("profile", "name", args.profile),
     ])
+    # A relative root in the config file is relative to that file, as the config
+    # promises — not to wherever the linter happens to be run from. Resolved against
+    # the working directory, a run from a subdirectory finds no docs, prints "nothing
+    # to lint" and exits 0, which looks exactly like passing.
+    if root is None and not os.path.isabs(cfg["paths"]["root"]) \
+            and os.path.exists(args.config):
+        cfg["paths"]["root"] = os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(args.config)), cfg["paths"]["root"]))
     ctx = Ctx(cfg)
 
     # The docs are UTF-8 and quote their own content back in messages, but a Windows

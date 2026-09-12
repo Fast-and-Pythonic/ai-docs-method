@@ -11,12 +11,16 @@
 name = "engineering"
 
 [paths]
-root = "."                    # project root, relative to this file's directory
+root = ".."                   # project root, relative to this file's directory
 docs = "ai_docs"
 method = "ai_docs_method"     # local method folder, if the project has one
 corpus = "ai_docs/corpus.md"  # research only; put it where a measurer will look
 baseline = ""                 # research only, e.g. "tools/bench/baseline"
 extra_doc_dirs = []           # other markdown the linter is responsible for, e.g. ["tools"]
+# Directories inside docs/ holding register entries once a register has been split by
+# area (RULES.md, "Scaling"): the register file keeps the index, the bodies live here.
+# Empty means every register is a single file.
+register_bodies = []
 path_roots = ["", "ai_docs"]  # a documented path only has to resolve against one of these
 root_pointers = ["CLAUDE.md", ".cursorrules", ".github/copilot-instructions.md"]
 # Paths that legitimately do not exist: an artefact the docs declare as not yet written,
@@ -25,7 +29,9 @@ root_pointers = ["CLAUDE.md", ".cursorrules", ".github/copilot-instructions.md"]
 allow = []
 
 [registers]
-# prefix -> file inside docs/. E is ignored outside the research profile.
+# prefix -> file inside docs/. E is ignored outside the research profile. This table
+# replaces the default set rather than extending it, so a document set with its own
+# prefixes (say EG and ED) lists only those. A prefix may be more than one letter.
 G = "gotchas.md"
 A = "architecture.md"
 E = "experiments.md"
@@ -33,6 +39,9 @@ E = "experiments.md"
 [limits]
 "start.md" = 100
 "status.md" = 80
+# A glob covers every matching file under docs/ and warns rather than errors — such
+# files grow by design, and the limit says when to split one:
+# "subsystems/*.md" = 150
 # Past this many entries an index stops being scannable and the register should be split
 # by area under one top-level index. A warning, not an error: the system should tell you
 # when to split rather than you guessing.

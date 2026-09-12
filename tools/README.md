@@ -34,6 +34,18 @@ not produce errors; it produces silence, which looks exactly like passing. The s
 for `numbers.metric_names`: a metric the linter does not know is a number it will not ask
 for a source for.
 
+**A split register.** When a register has outgrown one file (RULES.md, "Scaling"), keep
+the index in the register file, move the bodies into a directory and name it in
+`register_bodies`. Group the index under headings that link to each area's file —
+`## Build — [subsystems/build.md](subsystems/build.md)` — and check 17 holds every index
+line to the file its entry is in. A prefix may be longer than one letter (`EG`), and the
+`[registers]` table replaces the defaults rather than extending them, so a document set
+with its own prefixes lists only those.
+
+**Another document set.** `--config path/to/lint_docs.toml` points the linter at a
+config kept beside the documents rather than beside the script. A relative `root` in a
+config is resolved against the config file, so the command works from any directory.
+
 **Adding a check.** The bar is that it backs a hard rule or catches rot that has already
 happened. A check nobody's documentation has ever failed is a check that will fire on a
 false positive first and be disabled second.

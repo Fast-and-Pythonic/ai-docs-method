@@ -141,9 +141,9 @@ projects this standard came from.
 | # | Check | |
 |---|-------|--|
 | 1 | Broken `[[links]]` and broken markdown links to files | |
-| 2 | Index against headings in every register; gaps in numbering. A register with entries and no index at all is reported once, not once per entry; a register whose entries are numbered under some other scheme (`## 7.` rather than `## G07.`) is a warning, because otherwise every check below passes by finding nothing | |
+| 2 | Index against headings in every register; gaps in numbering. A register with entries and no index at all is reported once, not once per entry; a register whose entries are numbered under some other scheme (`## 7.` rather than `## G07.`) is a warning, because otherwise every check below passes by finding nothing. Once a register is split by area (§6), the bodies are read from every file under `register_bodies`, and an id with an entry in two files is an error | |
 | 3 | Index line and heading that share no words — a warning; a rename probably went halfway | |
-| 4 | Line limits for `start.md` and `status.md` | |
+| 4 | Line limits for `start.md` and `status.md`; as a warning, for any glob the config names (`subsystems/*.md`) | |
 | 5 | Absolute paths in prose, checked for existence | |
 | 6 | Repo-relative paths in backticks, checked against a small set of roots | |
 | 7 | `journal.md` index against its entries, counted **per date** | |
@@ -156,6 +156,7 @@ projects this standard came from.
 | 14 | An `E##` with status `refuted` and no back-link from a task | **[R]** |
 | 15 | An `E##` whose status is not `open` with an empty prediction | **[R]** |
 | 16 | An acceptance criterion that hedges (`noticeably`, `measurable`, `faster than`) without a figure — a warning | **[R]** |
+| 17 | In a split register whose index is grouped under headings that link to each area's file, every id sits under the section of the file its entry is in. Silent for a flat index. This is what breaks when an entry moves between files and the index is not updated to match | |
 
 Three of these are subtler than they look, and the subtlety is load-bearing. Do not
 simplify them away:
@@ -187,6 +188,12 @@ written down once. See [MEASUREMENT.md](MEASUREMENT.md).
 When check 8 fires, the register becomes a directory with one file per area under a
 single top-level index. **Numbering stays sequential across the whole register**, so no
 existing `[[G17]]` breaks.
+
+The linter follows the split: name the directory in `register_bodies` in
+`lint_docs.toml`, keep the index in the register file, and group it under headings that
+link to each area's file — `## Build — [subsystems/build.md](subsystems/build.md)`.
+Checks 2 and 17 then hold the index to the files, which is the part a hand-made split
+gets wrong first.
 
 That fixes the actual bottleneck — the size of the chunk you must read to know what
 exists. Heavier retrieval machinery (tags, semantic search, an embedding index) waits
