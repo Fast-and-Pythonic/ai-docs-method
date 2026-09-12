@@ -10,6 +10,13 @@
 # the run-configuration register, the plan/ checks and the measurement contract.
 name = "engineering"
 
+[project]
+# Size tier: "S", "M" or "L" — see RULES.md, "Tiers and scaling". Counted from the number
+# of areas a session has to hold in its head, which in practice is the number of subsystem
+# pages the project has earned. It adjusts the limits below and which files are expected,
+# and nothing else: triggers, entry formats and the hard rules are the same at every tier.
+tier = "S"
+
 [paths]
 root = ".."                   # project root, relative to this file's directory
 docs = "ai_docs"
@@ -21,7 +28,16 @@ extra_doc_dirs = []           # other markdown the linter is responsible for, e.
 # area (RULES.md, "Scaling"): the register file keeps the index, the bodies live here.
 # Empty means every register is a single file.
 register_bodies = []
-path_roots = ["", "ai_docs"]  # a documented path only has to resolve against one of these
+# A documented path is tried against these roots first. Failing that it is looked for as
+# the tail of any path in the tree, because documentation names a file the way a person
+# does — `model/Screen.kt`, not the full path from a source root nobody writes out. List
+# a root here only to make the common case cheap, not to constrain how paths are written.
+path_roots = ["", "ai_docs"]
+# Never searched when resolving a documented path. A generated tree is far larger than the
+# source it came from, and a path found only inside one is not evidence that the file the
+# documents mean still exists.
+ignore_dirs = [".git", "node_modules", "build", "target", "dist", ".cxx", ".gradle",
+               ".idea", "__pycache__", "venv", ".venv"]
 root_pointers = ["CLAUDE.md", ".cursorrules", ".github/copilot-instructions.md"]
 # Paths that legitimately do not exist: an artefact the docs declare as not yet written,
 # a file in someone else's repository, a build output that only exists after a build.
@@ -37,8 +53,11 @@ A = "architecture.md"
 E = "experiments.md"
 
 [limits]
+# Anything set here wins over the tier's value, so setting a limit pins it. `status.md`
+# is the one the tier moves — 80 at S and M, 120 at L — so it is left to the tier by
+# default; uncomment it only to hold this project to a figure of its own.
 "start.md" = 100
-"status.md" = 80
+# "status.md" = 80
 # A glob covers every matching file under docs/ and warns rather than errors — such
 # files grow by design, and the limit says when to split one:
 # "subsystems/*.md" = 150

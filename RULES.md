@@ -7,27 +7,51 @@ Rows marked **[R]** belong to the [research profile](profiles/research.md) and a
 inactive in a project that has not enabled it; rows marked **[E]** belong to the
 [engineering profile](profiles/engineering.md). Everything else is core.
 
+A second axis runs beside the profiles: the **tier**, `S` / `M` / `L`, which says how much
+of the inventory a project of this size warrants and what its limits are. A profile
+answers *what kind of work*; a tier answers *how much*. See [§6](#6-tiers-and-scaling).
+The tier changes the inventory and the limits and **nothing else** — triggers, entry
+formats and the hard rules are identical at every tier.
+
 ---
 
 ## 1. Target inventory of `ai_docs/`
 
-| File | Size | Role | |
-|------|------|------|--|
-| `start.md` | ≤100 | Entry point: map, situational guide, critical facts | |
-| `overview.md` | ≤200 | Purpose, **invariants**, stack, structure, phases | |
-| `status.md` | **≤80** | State only: Working / Fragile points / Blocked / Deferred. Rewritten in place | |
-| `journal.md` | grows | Chronicle, append-only, newest on top, with an index | |
-| `gotchas.md` | grows | `G##` plus index | |
-| `architecture.md` | grows | `A##` plus index (create on the first `A`) | |
-| `_meta.md` | ≤100 | Pointer to the rules; per-project settings | |
-| `conventions.md` | ≤300 | Code style, build, test, what must not be auto-formatted | **[E]** |
-| `subsystems/*.md` | grows | Compiled knowledge about one part of the tree | **[E]** |
-| `references/*.md` | — | External specs, upstream state, third-party formats | **[E]** |
-| `experiments.md` | grows | `E##` plus index | **[R]** |
-| `corpus.md` | grows | Register of run configurations — the key to every measurement | **[R]** |
-| `plan/*.md` | — | Tasks with acceptance criteria, plus `backlog.md` | **[R]** |
+| File | Tier | Size | Role | |
+|------|------|------|------|--|
+| `start.md` | S | ≤100 | Entry point: map, situational guide, critical facts | |
+| `overview.md` | S | ≤200 | Purpose, **invariants**, stack, structure, phases | |
+| `status.md` | S | **≤80** (L: ≤120) | State only: Working / Fragile points / Blocked / Deferred. Rewritten in place | |
+| `gotchas.md` | S | grows | `G##` plus index | |
+| `_meta.md` | S | ≤100 | Pointer to the rules and the version they are true against; per-project settings | |
+| `architecture.md` | S | grows | `A##` plus index | |
+| `journal.md` | M | grows | Chronicle, append-only, newest on top, with an index | |
+| `conventions.md` | M | ≤300 | Code style, build, test, what must not be auto-formatted | **[E]** |
+| `subsystems/*.md` | M | grows | Compiled knowledge about one part of the tree | **[E]** |
+| `references/*.md` | M | — | External specs, upstream state, third-party formats | **[E]** |
+| `experiments.md` | S | grows | `E##` plus index | **[R]** |
+| `corpus.md` | S | grows | Register of run configurations — the key to every measurement | **[R]** |
+| `plan/*.md` | S | — | Tasks with acceptance criteria, plus `backlog.md` | **[R]** |
 
-**A file is created on its first real entry, not in advance.**
+The tier column says from which size a file is **expected**. Below that tier it is not
+missing, it is unwarranted: a one-area project with no `subsystems/` is complete, not
+half-documented. Above it, an absent file is a gap worth explaining.
+
+### Creating a file
+
+**A file is created on its first real entry, not in advance.** An empty
+`architecture.md` teaches an agent that architecture is undocumented here; an absent one
+teaches nothing and costs nothing.
+
+**And when that first entry exists, creating the file is part of writing the entry** —
+not a separate decision to be raised with the user, not something to defer to the end of
+the session, and not a reason to park the entry in a neighbouring file "for now". If the
+trigger fired, write it where it belongs, now.
+
+Both halves are defects, and the second is the more expensive of the two. An empty file
+is visible and deleted in a second. An entry that was never written because its file did
+not exist yet is visible to nobody, and costs the same hours over again — which is the
+whole reason this standard exists.
 
 `corpus.md` may live beside the measurement data instead of in `ai_docs/` — set the
 path in `tools/lint_docs.toml`. Put it wherever the person taking a measurement will
@@ -109,6 +133,7 @@ otherwise it is a dead letter within three sessions.
 | H7 | An `E##` whose status is not `open` has a filled-in Prediction | `new_experiment.py` refuses to open an entry without one; lint checks the field is non-empty. Ordering ("before the run") is enforced by using the tool instead of editing by hand — nothing can verify it after the fact, which is why a reconstructed entry must be marked `retro` | **[R]** |
 | H8 | A measurement number appears only as a headline line linking to its report | lint: a number with a unit in a line with no path ending in `.json` | **[R]** |
 | H9 | A refuted `E##` has a back-link from the task that tempted it | lint: presence of the back-link | **[R]** |
+| H10 | `_meta.md` exists and names the standard the documents are kept to, with the version they were last audited against | lint: the file is present and carries a resolvable standard and a version. **Ships as a warning** and is promoted to an error once every consumer is clean — see [DEVIATIONS.md §6](DEVIATIONS.md#6-changing-the-standard-itself) | |
 
 **The convention H5 depends on:** an absolute path written in prose goes in backticks,
 and only then may it contain spaces — where an unquoted path with spaces ends is not
@@ -157,6 +182,7 @@ projects this standard came from.
 | 15 | An `E##` whose status is not `open` with an empty prediction | **[R]** |
 | 16 | An acceptance criterion that hedges (`noticeably`, `measurable`, `faster than`) without a figure — a warning | **[R]** |
 | 17 | In a split register whose index is grouped under headings that link to each area's file, every id sits under the section of the file its entry is in. Silent for a flat index. This is what breaks when an entry moves between files and the index is not updated to match | |
+| 18 | `_meta.md` is present, names the standard, and carries the version it was audited against — a **warning** for now (H10). Without it a document set cannot say which rules it is being held to, and a session has to guess | |
 
 Three of these are subtler than they look, and the subtlety is load-bearing. Do not
 simplify them away:
@@ -183,7 +209,50 @@ written down once. See [MEASUREMENT.md](MEASUREMENT.md).
 
 ---
 
-## 6. Scaling
+## 6. Tiers and scaling
+
+### What a tier is keyed on
+
+**The number of distinct areas a session must hold in its head** — not lines of code.
+Two projects measured at 12k and 14k lines came out at the same size by any line count
+and at different tiers by this one: the first is twenty files in one language, the second
+is ninety-five across two with a foreign-function boundary between them. Lines of code
+predicted neither.
+
+The discriminator is already in use: the [engineering profile](profiles/engineering.md)
+says to split a subsystem out when its documentation passes 50–80 lines. Counting how
+many such pages a project has earned *is* the tier.
+
+| Tier | The project | Inventory | Limits |
+|------|-------------|-----------|--------|
+| **S** | One area. No subsystem pages earned | The `S` rows of [§1](#1-target-inventory-of-ai_docs) | As written |
+| **M** | Two to four areas | Adds `journal.md`, `conventions.md`, `subsystems/`, `references/` | As written |
+| **L** | Five or more areas, or a register past the split threshold | Registers split by area under one index | `status.md` ≤120; see below |
+
+**Tier S is there to legitimise what already works.** A small project running on four
+files, passing lint, with a situational guide that fits on a screen, is not an incomplete
+`M` — it is a correct `S`. Calling it incomplete is how a standard earns a reputation for
+bureaucracy and stops being run at all.
+
+**Tier L changes where things live, not how much is written.** Three moves, and each has
+the same shape — push what belongs to one area onto that area's page, keep only the
+cross-cutting part in the file everyone loads:
+
+- **Registers** split by area (below). The index stays in the register file.
+- **Fragile points.** A subsystem's fragile points move to its `subsystems/` page;
+  `status.md` keeps the ones that cross areas. That, not a bigger number, is what makes
+  120 lines enough.
+- **The situational guide** in `start.md` keeps cross-cutting situations and hands the
+  rest to the subsystem pages. A guide that grows one line per area outgrows `start.md`
+  at exactly the size where it matters most.
+
+Raising a limit before making those moves treats the symptom. In both projects that blew
+the `status.md` limit fourfold, the file was carrying an append-only chronicle because
+neither had a `journal.md`; with the chronicle evicted, one of them came in at 112 lines
+against a limit of 80 — close enough that the 120 of tier L is a real fit rather than a
+round number, and far enough from 340 that the chronicle was plainly the disease.
+
+### Splitting a register
 
 When check 8 fires, the register becomes a directory with one file per area under a
 single top-level index. **Numbering stays sequential across the whole register**, so no

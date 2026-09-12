@@ -42,9 +42,31 @@ when the task touches that part.
 
 Split a subsystem out when its documentation passes roughly 50–80 lines, or when an
 agent should load it only for that area of work. Contents: purpose, the files that make
-it up and their roles, the concepts specific to it, the interfaces it exposes to the
-rest, and the nuances that only matter here. Link the related `G##` and `A##` entries
-rather than restating them.
+it up and their roles, the concepts specific to it, what it exposes to the rest, and the
+nuances that only matter here. Link the related `G##` and `A##` entries rather than
+restating them.
+
+**When the threshold is passed, make the page.** It is part of writing down what you just
+learned, not a restructuring to propose and wait on. The count of subsystem pages is also
+what sets the project's tier ([RULES.md §6](../RULES.md#6-tiers-and-scaling)), so a page
+that was earned and never created leaves the project measured as smaller than it is —
+with limits to match, which is how an always-loaded file quietly ends up carrying six
+areas' worth of detail.
+
+### An interface belongs to `A##`, not to a subsystem page
+
+A boundary between two subsystems belongs to both of them, so a page-per-part layout
+sends it to both or to neither. Both outcomes are bad, and the first is worse: two
+descriptions of one contract, drifting apart, each looking authoritative on its own page.
+
+**The contract at a boundary is an `A##`. The subsystem pages on either side link to it
+and describe only their own side of it.** Observed in a project where the
+foreign-function boundary between a Kotlin layer and a native engine was written up under
+two headings — one on each subsystem's page — and mentioned in five other files besides.
+
+This is worth stating because the boundary is usually the most expensive knowledge in the
+project: who owns what, what may be assumed across the line, what happens when one side
+changes. It is also exactly what cannot be recovered by reading either side's source.
 
 ### `references/<spec>.md`
 

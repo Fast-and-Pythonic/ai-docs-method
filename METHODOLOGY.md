@@ -79,6 +79,15 @@ A large file that is "sometimes needed" is a file the agent will read at the wor
 possible moment, or not at all. Size must match load frequency; when a file outgrows
 its band, split it or move part of it onto a subsystem page.
 
+Size is a function of **two** things, and the second is easy to miss: load frequency, and
+the number of areas the project has. A file that every session reads cannot also be the
+file that accumulates one section per subsystem — it grows precisely with the thing that
+makes it expensive to read. That is why `status.md` and `start.md` have limits at all, and
+why those limits move with the tier rather than staying constant: see
+[RULES.md §6](RULES.md#6-tiers-and-scaling). The fix at every size is the same move —
+what belongs to one area goes on that area's page, and the always-loaded file keeps only
+what crosses areas.
+
 ### 2.4. Capture at friction
 
 The most valuable knowledge appears at the moment of pain — right after a long
@@ -134,15 +143,25 @@ The core set, present in every project:
 | `journal.md` | grows | Chronicle, append-only, newest on top, with an index |
 | `gotchas.md` | grows | `G##` entries plus an index |
 | `architecture.md` | grows | `A##` entries plus an index |
-| `_meta.md` | ≤100 | Pointer to the rules; per-project settings such as language |
+| `_meta.md` | ≤100 | Pointer to the rules and the version they are true against; per-project settings such as language |
 
-Profiles add to it: `conventions.md`, `subsystems/`, `references/` from the
+Two axes adjust it, and they are independent. **Profiles** add by kind of work:
+`conventions.md`, `subsystems/`, `references/` from the
 [engineering profile](profiles/engineering.md); `experiments.md`, `corpus.md`, `plan/`
-from the [research profile](profiles/research.md).
+from the [research profile](profiles/research.md). **Tiers** adjust by size — which of
+these files a project of this size has earned, and what its limits are. The authoritative
+version of both is the inventory in [RULES.md §1](RULES.md#1-target-inventory-of-ai_docs);
+the tiers themselves are in [§6](RULES.md#6-tiers-and-scaling).
 
 **A file is created on its first real entry, not in advance.** An empty
 `architecture.md` teaches an agent that architecture is undocumented here; an absent
 one teaches nothing and costs nothing.
+
+**And once that entry exists, creating the file is part of writing it** — not a decision
+to put to the user, not work for the end of the session, not a reason to park the entry
+somewhere else. Of the two failures this rule guards against, that one is the worse: an
+empty file is visible and deleted in a second, while an entry nobody wrote is invisible
+and costs its hours again.
 
 **The Fragile points section of `status.md` is mandatory.** It is the most valuable
 part of the file: places that look removable but are load-bearing. Phrase them as

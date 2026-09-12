@@ -44,11 +44,19 @@ DEFAULTS = {
         # the bodies move under these. Empty means every register is a single file.
         "register_bodies": [],
         "path_roots": ["", "ai_docs"],
+        # Directories never searched when resolving a documented path. Generated trees
+        # are orders of magnitude larger than the source they come from, and a path that
+        # resolves only inside one is not evidence that the documented file exists.
+        "ignore_dirs": [".git", "node_modules", "build", "target", "dist", ".cxx",
+                        ".gradle", ".idea", "__pycache__", "venv", ".venv"],
         "root_pointers": ["CLAUDE.md", ".cursorrules",
                           ".github/copilot-instructions.md"],
         "allow": [],
     },
     "profile": {"name": "engineering"},
+    # Size tier: "S", "M" or "L". It adjusts the limits below and the expected inventory,
+    # and nothing else — see RULES.md, "Tiers and scaling".
+    "project": {"tier": "S"},
     "registers": {"G": "gotchas.md", "A": "architecture.md", "E": "experiments.md"},
     "limits": {"start.md": 100, "status.md": 80, "register_split_warn": 60},
     "numbers": {
@@ -84,6 +92,8 @@ DEFAULTS = {
         "status_open": "open",
         "status_refuted": "refuted",
         "acceptance_criterion": "Acceptance criterion",
+        # The line in _meta.md that names the standard these documents are kept to.
+        "standard": "Standard",
     },
     "tasks": {
         # Shape of a task id, e.g. T-1, I-2, R-2ab.
@@ -97,9 +107,31 @@ DEFAULTS = {
 
 RESEARCH_ONLY = {"E"}  # registers that exist only in the research profile
 
+TIERS = ("S", "M", "L")
+
+# Limits a tier moves. Only what a larger project legitimately needs more of appears
+# here: at tier L, status.md carries the fragile points that cross areas while each
+# subsystem's own move to its page, and 120 lines is what that comes to in practice.
+# Anything a project sets explicitly under [limits] wins over these.
+TIER_LIMITS = {
+    "S": {},
+    "M": {},
+    "L": {"status.md": 120},
+}
+
+# Files expected from a given tier upward (RULES.md §1, the Tier column). Below its tier
+# a file is unwarranted rather than missing, which is the half of the rule that lets a
+# small project stay small.
+TIER_INVENTORY = {
+    "M": ["journal.md"],
+}
+
 
 def load_config(path, overrides):
     cfg = {k: dict(v) if isinstance(v, dict) else v for k, v in DEFAULTS.items()}
+    # Which keys the project set for itself, so a tier default never silently overrides
+    # a deliberate choice. Defaults and tiers fill gaps; they do not compete.
+    explicit = {}
     if path and os.path.exists(path):
         if tomllib is None:
             print("warning  Python < 3.11: cannot read lint_docs.toml, using defaults "
@@ -115,11 +147,23 @@ def load_config(path, overrides):
                         cfg[section] = dict(values)
                     elif isinstance(values, dict):
                         cfg.setdefault(section, {}).update(values)
+                        explicit.setdefault(section, set()).update(values)
                     else:
                         cfg[section] = values
     for section, key, value in overrides:
         if value is not None:
             cfg.setdefault(section, {})[key] = value
+            explicit.setdefault(section, set()).add(key)
+
+    tier = str(cfg.get("project", {}).get("tier", "S")).upper()
+    if tier not in TIERS:
+        print(f"warning  unknown tier {tier!r}, treating the project as S; "
+              f"valid tiers are {', '.join(TIERS)}")
+        tier = "S"
+    cfg.setdefault("project", {})["tier"] = tier
+    for name, limit in TIER_LIMITS[tier].items():
+        if name not in explicit.get("limits", ()):
+            cfg["limits"][name] = limit
     return cfg
 
 
@@ -152,7 +196,10 @@ class Ctx:
         self.register_bodies = [os.path.normpath(os.path.join(self.docs, d))
                                 for d in p.get("register_bodies", [])]
         self.path_roots = [self._abs(r) for r in p.get("path_roots", [])]
+        self.ignore_dirs = set(p.get("ignore_dirs", []))
+        self._tree = None  # built on first use; see known_paths()
         self.path_allow = set(p.get("allow", []))
+        self.tier = cfg.get("project", {}).get("tier", "S")
         self.root_pointers = [self._abs(f) for f in p.get("root_pointers", [])]
 
         self.registers = {k: os.path.join(self.docs, v)
@@ -277,12 +324,51 @@ def linted_docs(ctx):
     return paths
 
 
+def known_paths(ctx):
+    """Every file under the root, as forward-slash paths relative to it.
+
+    Built once, on first use, and skipping the generated trees named in ignore_dirs —
+    without that skip this walks an order of magnitude more files than the project has,
+    and resolves documented paths against build output.
+    """
+    if ctx._tree is None:
+        found = set()
+        for dirpath, dirs, names in os.walk(ctx.root):
+            dirs[:] = [d for d in dirs if d not in ctx.ignore_dirs]
+            rel = os.path.relpath(dirpath, ctx.root)
+            prefix = "" if rel == "." else rel.replace("\\", "/") + "/"
+            for n in names:
+                found.add(prefix + n)
+            for d in dirs:
+                found.add(prefix + d)
+        ctx._tree = found
+    return ctx._tree
+
+
 def resolve_rel_path(ctx, token, doc_dir):
-    """True if a repo-relative path resolves against any of the known roots."""
+    """True if a documented repo-relative path points at something that exists.
+
+    Two stages, and the second is what the error message has always promised. A path is
+    first tried against the declared roots — exact, cheap, and the common case. Failing
+    that, it is looked for as the tail of any path in the tree: documentation refers to
+    `model/Screen.kt` or `res/xml/file_paths.xml` the way a person does, from whichever
+    source root the reader is expected to have in mind, and demanding the full
+    `app/src/main/java/com/example/model/Screen.kt` in prose is a demand nobody meets.
+
+    Suffix matching is deliberately generous. The check exists to catch a documented path
+    that points at nothing — a file that was renamed or deleted. It is not a check that
+    the path is written canonically, and treating it as one produced twelve false errors
+    against four real ones on the first large project it met, which is how a linter
+    teaches a session to stop reading its output.
+    """
     for root in ctx.path_roots + [doc_dir]:
         if os.path.exists(os.path.join(root, token)):
             return True
-    return False
+    token = token.strip("/")
+    if not token:
+        return False
+    tail = "/" + token
+    return any(p == token or p.endswith(tail) for p in known_paths(ctx))
 
 
 # --- inventories --------------------------------------------------------------------
@@ -598,6 +684,54 @@ def check_journal_index(ctx):
                                f"{indexed[date]} index line(s)")
 
 
+VERSION_RE = re.compile(r"\bv?\d+\.\d+(?:\.\d+)?\b")
+POINTER_RE = re.compile(r"https?://\S+|`[^`\n]*[/\\][^`\n]*`|\]\([^)]+\)")
+
+
+def check_meta(ctx):
+    """18. _meta.md exists, names the standard, and records the version (H10).
+
+    A warning for now, by the release policy in DEVIATIONS.md: this rule was added after
+    the projects it governs, and a tightening change ships as a warning until every
+    consumer is clean. Promote it to err() once they are.
+
+    Without this file a document set cannot say which rules it is being held to, and a
+    session has to infer them from the shape of what is already there — which reproduces
+    whatever was already wrong.
+    """
+    path = os.path.join(ctx.docs, "_meta.md")
+    if not os.path.exists(path):
+        warn(ctx.rel(path), "missing — nothing here says which standard these documents "
+                            "are kept to, or which version of it")
+        return
+    text = strip_code(read(path))
+    label = ctx.labels.get("standard", "Standard")
+    line = next((ln for ln in text.splitlines() if ln.strip().startswith(label)), None)
+    if line is None or not POINTER_RE.search(line):
+        warn(ctx.rel(path), f"no '{label}' line naming the standard — a URL, a path or a "
+                            f"link to the rules these documents follow")
+        return
+    if not VERSION_RE.search(line):
+        warn(ctx.rel(path), "the standard is named but no version is recorded — without "
+                            "one, 'has not caught up yet' and 'was never kept to it' "
+                            "look the same")
+
+
+def check_tier_inventory(ctx):
+    """A file expected from this tier upward is absent (RULES.md §1, Tier column).
+
+    A warning, and deliberately quiet below the tier: the point of the column is that a
+    small project running on few files is complete, not half-documented.
+    """
+    reached = TIERS[:TIERS.index(ctx.tier) + 1]
+    for tier in reached:
+        for name in TIER_INVENTORY.get(tier, []):
+            if not os.path.exists(os.path.join(ctx.docs, name)):
+                warn(ctx.rel(os.path.join(ctx.docs, name)),
+                     f"expected from tier {tier} upward and absent (this project is "
+                     f"{ctx.tier}) — see the Tier column in RULES.md")
+
+
 # --- research-profile checks --------------------------------------------------------
 
 def check_backlog_statuses(ctx):
@@ -899,6 +1033,8 @@ def main():
     ap.add_argument("--root", help="project root (default: from config)")
     ap.add_argument("--docs", help="path to ai_docs/, relative to root")
     ap.add_argument("--profile", choices=["engineering", "research"])
+    ap.add_argument("--tier", choices=list(TIERS),
+                    help="size tier (default: from config, else S)")
     args = ap.parse_args()
 
     # If --docs is given as an absolute path, treat its parent as the root: the common
@@ -912,6 +1048,7 @@ def main():
         ("paths", "root", root),
         ("paths", "docs", docs),
         ("profile", "name", args.profile),
+        ("project", "tier", args.tier),
     ])
     # A relative root in the config file is relative to that file, as the config
     # promises — not to wherever the linter happens to be run from. Resolved against
@@ -959,6 +1096,8 @@ def main():
     check_absolute_paths(ctx)
     check_rel_paths(ctx)
     check_journal_index(ctx)
+    check_meta(ctx)
+    check_tier_inventory(ctx)
     if ctx.research:
         check_backlog_statuses(ctx)
         check_done_tasks(ctx)
@@ -974,7 +1113,7 @@ def main():
     for e in errors:
         print(f"ERROR    {e}")
     print(f"\n{len(errors)} error(s), {len(warnings)} warning(s) "
-          f"[{cfg['profile']['name']} profile]")
+          f"[{cfg['profile']['name']} profile, tier {ctx.tier}]")
     sys.exit(1 if errors else 0)
 
 

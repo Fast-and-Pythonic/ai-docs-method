@@ -9,6 +9,13 @@ if ! command -v python >/dev/null 2>&1; then
     exit 0
 fi
 
+python tools/make_index.py --check || {
+    echo >&2
+    echo "pre-commit: a register index is out of date. Run tools/make_index.py — it" >&2
+    echo "regenerates the index from the entries and is safe to run at any time." >&2
+    exit 1
+}
+
 python tools/lint_docs.py || {
     echo >&2
     echo "pre-commit: documentation lint failed. Fix the errors above, or commit with" >&2

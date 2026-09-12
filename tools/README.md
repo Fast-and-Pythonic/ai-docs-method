@@ -46,9 +46,49 @@ with its own prefixes lists only those.
 config kept beside the documents rather than beside the script. A relative `root` in a
 config is resolved against the config file, so the command works from any directory.
 
+**The tier.** `[project] tier` in the config, or `--tier S|M|L`, sets the size tier
+(RULES.md, "Tiers and scaling"). It moves the `status.md` limit and decides which files
+are expected; anything set explicitly under `[limits]` wins over it. The tier is printed
+on the summary line, so a run says what it held the project to.
+
+**Documented paths.** A path in backticks is tried against `path_roots` first and then
+looked for as the tail of any path in the tree, because documentation names a file the
+way a person does — `model/Screen.kt`, not the whole path from a source root. Generated
+trees are skipped via `ignore_dirs`: a path that resolves only inside `build/` is not
+evidence that the file still exists. This is deliberately generous. The check exists to
+catch a path pointing at nothing, not to police how paths are written — held to the
+stricter reading it produced twelve false errors against four real ones on the first
+large project it met, and a linter that cries wolf is one the next session stops reading.
+
 **Adding a check.** The bar is that it backs a hard rule or catches rot that has already
 happened. A check nobody's documentation has ever failed is a check that will fire on a
 false positive first and be disabled second.
+
+**Releasing a check.** A new error-level check is a tightening change, and by
+[DEVIATIONS.md §6](../DEVIATIONS.md#6-changing-the-standard-itself) it ships as a warning
+and is promoted once every consumer is clean. Check 18 is the current example. Sweep the
+consumers before and after: a correctly released check moves the warning count and leaves
+the error count alone.
+
+## `make_index.py`
+
+Generates a register's index from its entries — the producer behind rule H1, which
+lint_docs.py only checks.
+
+```bash
+python tools/make_index.py                 # every register in the config
+python tools/make_index.py --register G    # just the gotchas
+python tools/make_index.py --check         # write nothing; exit 1 if an index is stale
+```
+
+Idempotent: a second run changes nothing, so it is safe from a hook. It sorts entries by
+number, and on a register already split by area it keeps the existing section headings and
+their order — those names were chosen by a person and say more than a file stem does.
+
+A check with no producer reports the same defect every session and never fixes it. Nobody
+assembles twenty-five index lines by hand, and an index that was assembled by hand drifts
+from its entries by the next session. `--check` in the pre-commit hook is what keeps the
+two in step.
 
 ## `new_experiment.py`
 

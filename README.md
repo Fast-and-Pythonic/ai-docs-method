@@ -74,11 +74,11 @@ python tools/lint_docs.py --docs path/to/ai_docs --profile engineering
 | [MEASUREMENT.md](MEASUREMENT.md) | The measurement contract, in two regimes | **Before** any measurement |
 | [DEVIATIONS.md](DEVIATIONS.md) | How to break these rules on purpose without dissolving the standard | When something here does not fit |
 | [REVIEW_PROMPT.md](REVIEW_PROMPT.md) | Cold review of a documentation system by a fresh session | After a restructuring, before a milestone |
-| [profiles/](profiles/) | [engineering](profiles/engineering.md) · [research](profiles/research.md) | When setting up |
+| [profiles/](profiles/) | The two axes: [engineering](profiles/engineering.md) · [research](profiles/research.md), and the `S`/`M`/`L` tier | When setting up |
 | [templates/](templates/) | Skeletons to copy | Starting a file or an entry |
 | [examples/](examples/) | Filled-in entries from real projects | When a template is not enough |
 | [migration/](migration/) | Adoption scenarios | Once, at the start |
-| [tools/](tools/) | The linter and the experiment opener | Every session |
+| [tools/](tools/) | The linter, the index generator and the experiment opener | Every session |
 
 ---
 
