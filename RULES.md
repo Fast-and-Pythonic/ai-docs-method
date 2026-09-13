@@ -103,6 +103,14 @@ The trigger on *conversation* is easy to overlook and is one of the most product
 The commonest way to lose knowledge is to work it out in a discussion and never write
 it down; a chat log is not a document, and the next session cannot read it.
 
+**These triggers have no checking mechanism, and by H-rule logic that makes them
+advice.** Nothing can verify that a debugging session ran past thirty minutes or that a
+decision was settled in a discussion; the linter catches only the consequences — a
+`status.md` past its limit, a file that ought to exist. Measured on the six document
+sets this standard is kept on, the table was present and unapplied in three. That is
+the honest failure rate of capture that depends on a session noticing, and the reason
+automated capture is a live question rather than a rejected one — see §6.
+
 ---
 
 ## 3. Session protocol
@@ -272,13 +280,37 @@ link to each area's file — `## Build — [subsystems/build.md](subsystems/buil
 Checks 2 and 17 then hold the index to the files, which is the part a hand-made split
 gets wrong first.
 
-That fixes the actual bottleneck — the size of the chunk you must read to know what
-exists. Heavier retrieval machinery (tags, semantic search, an embedding index) waits
-for evidence, because building it now is optimising before measuring.
+That addresses one bottleneck — the size of the chunk you must read to know what
+exists — and it is worth being exact about which one, because the question "should this
+be a database instead of a folder" is really two questions with different answers.
 
-Revisit if: a split register still passes ~80 entries; a session fails to find an entry
-that exists and writes a duplicate (record *that* as a `G##` — it is the first real
-evidence); cross-cutting queries become routine; or an external document corpus appears.
+**Retrieval** — how a session finds what it needs. The map (`start.md`, the indexes,
+`[[links]]`) is a hand-built retrieval system: deterministic and auditable, and you can
+see why a document was loaded. Its cost was measured on the six document sets this
+standard is kept on — about 6k tokens for everything a session always reads, and the
+largest register at 25 entries — so at this size an embedding index, tags or a knowledge
+graph would not be solving a problem that exists. That is a statement about *these*
+sizes, not a verdict. The signals that would change it: a split register passing ~80
+entries; a session failing to find an entry that exists and writing a duplicate — record
+*that* as a `G##`, it is the first real evidence; cross-cutting queries becoming routine;
+an external corpus appearing.
+
+**Capture** — how knowledge gets *into* the documents. This standard's answer is the
+trigger table in §2, and it is manual: a session has to notice that a trigger fired and
+act. On the same six document sets that mechanism was present and unapplied in three —
+a decision log grown to 349 lines because the journal was never created, a project with
+no `_meta.md`, a register in a format the linter could not see. Automated capture — a
+pass over the session that proposes candidate entries — addresses exactly that failure,
+and the objection that it would record wrong conclusions applies to the manual route
+too: the same audit found a `_meta.md` describing a file layout months out of date and a
+root pointer citing an entry that did not exist. The gate belongs at *promotion* — what
+gets a number and enters a register — not at capture. Nothing here has been tried yet;
+see §2 for why the triggers as written are advice rather than rules.
+
+A reader arriving at this section from a session that has just polished the map should
+notice the pull to defend it. The two paragraphs above were rewritten on 2026-09-14 for
+that reason: the earlier text carried a settled verdict against heavier machinery, and
+every session that read it reproduced the verdict as its own.
 
 ---
 

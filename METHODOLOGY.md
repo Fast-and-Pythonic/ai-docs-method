@@ -117,6 +117,17 @@ This is a requirement on *process*, not on structure. Without the trigger "debug
 ran past 30 minutes with a non-obvious cause → write the entry now", the structure sits
 empty and the standard does nothing. The triggers are in [RULES.md](RULES.md).
 
+Be honest about what kind of thing a trigger is. By principle [2.5](#25-a-rule-without-a-mechanism-is-advice)
+below, a rule with no checking mechanism is advice — and no linter can tell that a
+debugging session ran long, or that a decision was settled in conversation. The triggers
+are advice. What the linter catches is the *consequence* of ignoring them: a `status.md`
+over its limit, a file that should exist and does not. On the six document sets this
+standard is kept on, the triggers were present and unapplied in three, which is the
+measured failure rate of capture that depends on a session noticing. That is the case for
+automated capture — a pass that proposes candidate entries the session did not think to
+write — with the quality gate moved to promotion into a register rather than placed at
+capture. It is discussed, and deliberately not settled, in [RULES.md §6](RULES.md#6-tiers-and-scaling).
+
 ### 2.5. A rule without a mechanism is advice
 
 A rule that cannot be checked by a linter or executed by a single command **cannot be
