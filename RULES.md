@@ -126,6 +126,14 @@ automated capture is a live question rather than a rejected one — see §6.
    contract or the architecture would have to change; the method contradicts reality.
 7. At the end, work through the triggers above and run `python tools/lint_docs.py`.
 
+Step 1 is the rule every other step depends on, and by [METHODOLOGY §2.5](METHODOLOGY.md#25-a-rule-without-a-mechanism-is-advice)
+it is advice as long as the only thing behind it is an instruction in the root pointer.
+Where the agent's tool can run a command at session start and put its output into
+context, that is its mechanism: load `start.md` there, and the reading no longer depends
+on the session judging the task big enough to count. [`tools/hooks/`](tools/hooks/)
+has one for Claude Code. Keep what the hook loads small — a tool may cut a large hook
+output down to a preview, and a preview looks loaded while missing its tail.
+
 Step 6 is not politeness. An invariant is a rule of the project rather than of its
 documentation, and no linter can check one; stop-and-ask is its only mechanism, which
 is exactly why it is written down as a step rather than assumed.

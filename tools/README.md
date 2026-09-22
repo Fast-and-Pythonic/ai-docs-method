@@ -153,3 +153,25 @@ git config core.hooksPath tools/hooks
 Finding a problem before you write the commit message is cheaper than after. If the
 project is not under version control, say so in `_meta.md` and record which hard rules
 are consequently demoted to advice — see [DEVIATIONS.md](../DEVIATIONS.md).
+
+## `hooks/claude-code-session-start.sh`
+
+Loads `ai_docs/start.md` into a Claude Code session before its first turn. This is the
+mechanism behind step 1 of the session protocol ([RULES.md §3](../RULES.md#3-session-protocol)):
+without it, reading `start.md` rests on an instruction in the root pointer, and an agent
+that judges a task too small to count as "starting work" skips it — in the case that
+prompted this, on exactly the edit whose right file `start.md` would have named.
+
+Install it as a `SessionStart` hook; the header of the script has the snippet. It needs
+`jq`, finds `ai_docs/` in the session's directory or at the root of its git repository,
+and says nothing where there is none, so a global install is harmless.
+
+It loads `start.md` alone and caps it at `MAX_BYTES` (8000 by default), cutting at a whole
+line and saying so. Claude Code replaces a hook output of roughly 10 KB or more with a
+2 KB preview, and a preview is the worst outcome — the head of the file is there, so it
+reads as loaded. When checking a hook like this, ask the agent to quote the **last** line
+of what it was given; the first line is in the preview either way.
+
+Other tools: the same idea applies wherever the tool can run a command at session start
+and hand its output to the agent. Where it cannot, step 1 remains advice, and should be
+called that.

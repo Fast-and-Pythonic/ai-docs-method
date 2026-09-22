@@ -139,6 +139,22 @@ nominally mandatory but silently unenforced is worse than an honest suggestion: 
 makes the whole document set look maintained when it is not. Every hard rule in
 [RULES.md](RULES.md) names its mechanism in the same table row.
 
+**The same holds for instructions to the agent itself** — the root pointer, `start.md`,
+a skill, a system prompt. An instruction is advice the agent can and occasionally will
+set aside, and the way it does so is specific: it rarely forgets the rule, it decides
+the rule does not apply *this time*. "Read `start.md` before starting work" gets read as
+not covering a request that looks like a one-line edit — and the one-line edit is where
+the routing in `start.md` would have said which of two files actually loads. Nobody wrote
+the exception; the agent supplied it. Wording the instruction more strongly does not
+help, because the next session makes the same judgement about the stronger wording.
+
+So anything that must happen *every* time needs a mechanism outside the prompt: a hook in
+the agent's tool, a linter, a pre-commit, a script that refuses. The instruction stays,
+as the explanation of what the mechanism does and why. The question to ask of any new
+instruction is what happens when it is skipped: if the answer is expensive and nothing
+prevents the skip, look for the mechanism before polishing the words. The session
+protocol's own first step is the standing example — see [RULES.md §3](RULES.md#3-session-protocol).
+
 ### 2.6. Negative results are assets
 
 "Built it, measured it, threw it away" is an evening of work. Unrecorded, it will be
