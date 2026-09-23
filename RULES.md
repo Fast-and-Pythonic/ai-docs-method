@@ -196,7 +196,7 @@ projects this standard came from.
 | 5 | Absolute paths in prose, checked for existence | |
 | 6 | Repo-relative paths in backticks, checked against a small set of roots | |
 | 7 | `journal.md` index against its entries, counted **per date** | |
-| 8 | A register grown past 60 entries — a warning that its index has stopped being scannable | |
+| 8 | A register grown past 60 entries — a warning that its index has stopped being scannable. Once the register is split by area, the threshold applies to each area's file instead | |
 | 9 | Backlog statuses belong to the legend that file declares | **[R]** |
 | 10 | Backlog tasks marked `done` with no `journal.md` entry **headed** with that id | **[R]** |
 | 11 | Every measurement report: required fields present, `corpus_id` registered and matching its directory | **[R]** |
@@ -287,6 +287,10 @@ The linter follows the split: name the directory in `register_bodies` in
 link to each area's file — `## Build — [subsystems/build.md](subsystems/build.md)`.
 Checks 2 and 17 then hold the index to the files, which is the part a hand-made split
 gets wrong first.
+
+After the split, check 8 counts per area file rather than the whole register: the
+total keeps growing and splitting has already answered it. The next warning names the
+area that has outgrown its page.
 
 That addresses one bottleneck — the size of the chunk you must read to know what
 exists — and it is worth being exact about which one, because the question "should this

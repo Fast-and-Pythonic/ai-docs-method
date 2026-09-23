@@ -618,14 +618,31 @@ def check_registers(ctx):
 
 
 def check_register_size(ctx):
-    """8. A register grown past the point where its index is still scannable."""
+    """8. A register grown past the point where its index is still scannable.
+
+    Once the register has been split by area, the total no longer means anything —
+    splitting is the answer to it, and it keeps growing afterwards. The threshold then
+    applies to each file that holds bodies, and the warning names the area to split.
+    """
     for prefix, path in ctx.registers.items():
         if not os.path.exists(path):
             continue
-        n = len(register_ids(ctx, prefix)[0])
-        if n > ctx.split_warn:
-            warn(ctx.rel(path), f"{n} entries (over {ctx.split_warn}) — time to split "
-                                f"the register by area; see 'Scaling' in RULES.md")
+        entries = register_entries(ctx, prefix)
+        if not ctx.register_bodies:
+            if len(entries) > ctx.split_warn:
+                warn(ctx.rel(path), f"{len(entries)} entries (over {ctx.split_warn}) — "
+                                    f"time to split the register by area; see 'Scaling' "
+                                    f"in RULES.md")
+            continue
+        per_file = {}
+        for occurrences in entries.values():
+            for f, _ in occurrences:
+                per_file[f] = per_file.get(f, 0) + 1
+        for f, n in sorted(per_file.items()):
+            if n > ctx.split_warn:
+                warn(ctx.rel(f), f"{n} {prefix}## entries in this area (over "
+                                 f"{ctx.split_warn}) — time to split the area; see "
+                                 f"'Scaling' in RULES.md")
 
 
 def check_line_limits(ctx):
