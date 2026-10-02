@@ -21,7 +21,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-docs-lint"
-version = "2.1.0"
+version = "2.2.0"
 description = "Linter and index generator for the ai_docs documentation standard"
 readme = "README.md"
 license = { file = "LICENSE" }

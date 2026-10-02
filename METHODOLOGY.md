@@ -154,6 +154,9 @@ as the explanation of what the mechanism does and why. The question to ask of an
 instruction is what happens when it is skipped: if the answer is expensive and nothing
 prevents the skip, look for the mechanism before polishing the words. The session
 protocol's own first step is the standing example — see [RULES.md §3](RULES.md#3-session-protocol).
+"The root pointer is a pointer, not a second home" is another: it has lint check 19, and
+a Claude Code hook that stops an edit to the pointer and asks the person
+(`tools/hooks/claude-code-guard-pointer.sh`).
 
 ### 2.6. Negative results are assets
 
@@ -248,8 +251,8 @@ open source, where contributors arrive with different tools, and it matters for
 longevity, because tools change faster than projects do.
 
 `ai_docs/start.md` is the single entry point. Tool-specific pointer files live at the
-**project root** and hold nothing but a one-line description, a link to
-`ai_docs/start.md`, and at most three critical rules:
+**project root** and hold nothing but a one-line description, an order to read
+`ai_docs/start.md` first, and the few critical rules that pass the admission test below:
 
 | Tool | File at the root |
 |------|------------------|
@@ -260,7 +263,24 @@ longevity, because tools change faster than projects do.
 
 Create only the pointer for the tool you use; the content is identical, so there is
 nothing to duplicate. Nothing may appear in a pointer file that is not also stated, in
-full, inside `ai_docs/`.
+full, inside `ai_docs/` — each critical rule names that place, and lint checks it (H11).
+
+**The admission test for a critical rule.** A rule belongs in the pointer only if both
+hold: it applies to *every* task in the project, not to a kind of task — kinds of task
+are what the routing in `start.md` is for; and breaking it *before* `start.md` has been
+read is expensive or irreversible — a commit to the wrong repository, a push, lost data,
+the invariant the project exists for. Everything else goes to `start.md`'s three facts or
+its routing, where it is read anyway.
+
+There is deliberately no number. An earlier version said "at most three", which nothing
+justified and nothing checked. The reason to keep the list short is an argument, not a
+measurement: the pointer is loaded into every session, and every rule added to it dilutes
+the weight of the others. The pressure to add one is real and specific — the pointer is
+the one file a session knows is always read, so "write this down so it does not happen
+again" lands there. Past five rules or twenty lines, lint warns, as a prompt to apply the
+test again. Where the tool can load `start.md` itself at session start (the Claude Code
+hook in `tools/hooks/`), the pointer matters less still; it matters most for tools that
+cannot.
 
 **Naming rule:** if a file is named after a tool, it belongs at the root. If a file
 lives in `ai_docs/`, its name describes its content — `start`, `overview`, `gotchas`.

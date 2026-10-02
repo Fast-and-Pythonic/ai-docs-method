@@ -779,6 +779,72 @@ def check_meta(ctx):
                            "look the same")
 
 
+CRITICAL_RULES_RE = re.compile(r"^(?:#+\s*)?\**critical rules\**:?\s*$", re.IGNORECASE)
+ID_TOKEN_RE = re.compile(r"\b[A-Z]{1,3}\d+\b")
+POINTER_RULES_WARN = 5
+POINTER_LINES_WARN = 20
+
+
+def pointer_rules(text):
+    """Top-level bullets under a 'Critical rules' heading or label, continuations joined."""
+    rules, inside = [], False
+    for line in text.splitlines():
+        if not inside:
+            inside = bool(CRITICAL_RULES_RE.match(line.strip()))
+            continue
+        if line.startswith("#"):
+            break
+        if re.match(r"[-*]\s", line):
+            rules.append(line)
+        elif rules and line.strip():
+            if not line[0].isspace():
+                break
+            rules[-1] += " " + line.strip()
+    return rules
+
+
+def check_root_pointers(ctx, known):
+    """19. Every critical rule in a root pointer is also stated in ai_docs/ (H11).
+
+    A pointer is the one file an agent's tool loads into every session, so it is where a
+    session reaches when told "write this down so it does not happen again" — and a rule
+    written only there is knowledge with no home in the documents, invisible to every
+    other tool and to people. So each rule has to say where in the document set it lives:
+    a path into the docs that exists, or a register id that resolves.
+
+    A missing place is an error. Under the release policy in DEVIATIONS.md §6 it would
+    ship as a warning; it was measured across every consumer first, the six rules it
+    flagged were each already stated in their documents and only lacked the path, and
+    with those added all were clean — so it ships as an error, as H10 became one.
+
+    Too many rules or too many lines only warn: the admission test for a rule
+    (METHODOLOGY §5) is a judgement, and a count cannot make it.
+    """
+    docs_rel = os.path.relpath(ctx.docs, ctx.root).replace("\\", "/") + "/"
+    path_re = re.compile(re.escape(docs_rel) + r"[^\s`)\]#]*")
+    for pointer in ctx.root_pointers:
+        if not os.path.exists(pointer):
+            continue
+        text = strip_code(read(pointer))
+        where = ctx.rel(pointer)
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        if len(lines) > POINTER_LINES_WARN:
+            warn(where, f"{len(lines)} lines, over {POINTER_LINES_WARN} — a pointer that "
+                        f"grows is turning into a second home for the docs; advisory")
+        rules = pointer_rules(text)
+        if len(rules) > POINTER_RULES_WARN:
+            warn(where, f"{len(rules)} critical rules, over {POINTER_RULES_WARN} — check "
+                        f"each against the admission test in METHODOLOGY §5; advisory")
+        for rule in rules:
+            paths = [p.rstrip(".,;:") for p in path_re.findall(rule)]
+            stated = (any(os.path.exists(os.path.join(ctx.root, p)) for p in paths)
+                      or any(t in known for t in ID_TOKEN_RE.findall(rule)))
+            if not stated:
+                head = re.sub(r"^[-*]\s+", "", rule).strip()[:60]
+                err(where, f"critical rule not stated in {docs_rel} — give the path or "
+                            f"the register id where it lives (H11): \"{head}…\"")
+
+
 def check_tier_inventory(ctx):
     """A file expected from this tier upward is absent (RULES.md §1, Tier column).
 
@@ -1185,6 +1251,7 @@ def main():
     check_rel_paths(ctx)
     check_journal_index(ctx)
     check_meta(ctx)
+    check_root_pointers(ctx, known)
     check_tier_inventory(ctx)
     if ctx.research:
         check_backlog_statuses(ctx)

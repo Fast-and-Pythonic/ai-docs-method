@@ -175,3 +175,19 @@ of what it was given; the first line is in the preview either way.
 Other tools: the same idea applies wherever the tool can run a command at session start
 and hand its output to the agent. Where it cannot, step 1 remains advice, and should be
 called that.
+
+## `hooks/claude-code-guard-pointer.sh`
+
+Stops a Claude Code edit to the root `CLAUDE.md` of a project kept to this standard and
+asks the person, showing why: the pointer holds no knowledge of its own
+([METHODOLOGY §5](../METHODOLOGY.md#5-tool-independence)). The pointer is the one file a
+session knows is always loaded, so "write this down so it does not happen again" tends to
+land there; lint check 19 catches the result at commit time, this catches the moment of
+writing.
+
+Install it as a `PreToolUse` hook; the header of the script has the snippet. It needs
+`jq` and acts only where `ai_docs/start.md` sits next to the `CLAUDE.md`, so a global
+install is harmless. It asks rather than refuses, because editing the pointer is
+sometimes the task; with no one to ask, as under `claude -p`, the ask becomes a refusal.
+Shell writes are matched by a coarse pattern, and one that slips past it is not caught.
+Hooks are read at session start: the session that installs it is not yet guarded.

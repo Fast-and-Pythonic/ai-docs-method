@@ -6,7 +6,8 @@ Works for a new project or an existing one.
 
 - [ ] Create `ai_docs/` at the project root
 - [ ] Copy `templates/root_pointer.md` to the root as `CLAUDE.md` / `.cursorrules` /
-      `.github/copilot-instructions.md`; fill in the name and at most three critical rules
+      `.github/copilot-instructions.md`; fill in the name and only the critical rules that pass
+      the admission test in METHODOLOGY §5, each naming where in `ai_docs/` it is stated
 - [ ] Copy `templates/start.md` → `ai_docs/start.md` and fill it in
 - [ ] Copy `templates/overview.md` → `ai_docs/overview.md`; fill in purpose, invariants,
       stack, structure

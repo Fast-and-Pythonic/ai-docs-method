@@ -158,6 +158,7 @@ otherwise it is a dead letter within three sessions.
 | H8 | A measurement number appears only as a headline line linking to its report | lint: a number with a unit in a line with no path ending in `.json` | **[R]** |
 | H9 | A refuted `E##` has a back-link from the task that tempted it | lint: presence of the back-link | **[R]** |
 | H10 | `_meta.md` exists and names the standard the documents are kept to, with the version they were last audited against | lint: the file is present and carries a resolvable standard and a version. Shipped as a warning and **promoted to an error on 2026-09-13**, once every consumer was clean — the release policy in [DEVIATIONS.md §6](DEVIATIONS.md#6-changing-the-standard-itself) working as written, and its first completed cycle | |
+| H11 | Every critical rule in a root pointer (`CLAUDE.md`, `.cursorrules`, …) says where in `ai_docs/` it is stated | lint: each rule under the pointer's *Critical rules* carries a path into the documents that exists, or a register id that resolves. An **error** from the release that introduced it, 2026-10-02: measured across every consumer first, the rules it flagged were each already stated in their documents and lacked only the path. Which rules belong in a pointer at all is a judgement — the admission test in [METHODOLOGY §5](METHODOLOGY.md#5-tool-independence) — and only warns past five rules or twenty lines | |
 
 **The convention H5 depends on:** an absolute path written in prose goes in backticks,
 and only then may it contain spaces — where an unquoted path with spaces ends is not
@@ -207,6 +208,7 @@ projects this standard came from.
 | 16 | An acceptance criterion that hedges (`noticeably`, `measurable`, `faster than`) without a figure — a warning | **[R]** |
 | 17 | In a split register whose index is grouped under headings that link to each area's file, every id sits under the section of the file its entry is in. Silent for a flat index. This is what breaks when an entry moves between files and the index is not updated to match | |
 | 18 | `_meta.md` is present, names the standard, and carries the version it was audited against (H10). An **error** since 2026-09-13. Without it a document set cannot say which rules it is being held to, and a session has to guess; without the version, "behind" and "never compliant" look the same | |
+| 19 | Every critical rule in a root pointer names its place in `ai_docs/` — a path that exists or a register id that resolves (H11). An **error**. More than five rules or twenty lines in a pointer — a warning | |
 
 Three of these are subtler than they look, and the subtlety is load-bearing. Do not
 simplify them away:

@@ -8,8 +8,9 @@ Create three files and stop.
 
 **Root pointer** (`CLAUDE.md`, `.cursorrules`, …) from
 [templates/root_pointer.md](../templates/root_pointer.md). Five to fifteen lines: what
-the project is, "start with `ai_docs/start.md`", and at most three rules an agent must
-know before its first edit.
+the project is, the order to read `ai_docs/start.md` first, and only the rules that pass
+the admission test in [METHODOLOGY §5](../METHODOLOGY.md#5-tool-independence) — each
+naming where in `ai_docs/` it is stated.
 
 **`ai_docs/overview.md`** from the template. Purpose, stack, structure, and — the field
 people skip — **invariants**: the rules of the project that no linter can check and that
