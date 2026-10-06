@@ -74,6 +74,11 @@ F. FALSIFIABLE CLAIMS ABOUT OTHER PROJECTS (optional).
 Constraints: read-only apart from the deliberate lint-breaking in B, which you must
 revert. Do not implement fixes. Do not reorganise anything. Rank your findings by how
 much damage they would do if left alone, and say plainly which ones you would ignore.
+
+For every finding where something is required but held up only by words — a rule, an
+instruction to the agent, a step everyone is expected to remember — add one line:
+"Mechanism: exists (which) / can be built (what: a lint check, a hook, a pre-commit, a
+script that refuses) / cannot (why)."
 ```
 
 ---
@@ -98,6 +103,13 @@ yet a defect; they are a defect with a delay.
 **E — design critique** is where the review earns its cost. The instruction that the
 author wants disagreement is load-bearing: without it, a reviewer will find the system
 impressive and say so, which is worth nothing.
+
+**The "Mechanism:" line** applies principle 2.5 to the review itself. Without it, a reviewer
+reports "this is held up only by a sentence" and the author picks the cheapest remedy —
+another default, a firmer sentence — because the question "could a hook or a check enforce
+it?" belongs to the moment a rule is added, and a review finds old rules. In one session
+the reviewer flagged exactly such a rule, the fix chosen was a default value, and the hook
+that settled it came from the user, later in the same session. The line makes the reviewer ask.
 
 **F — falsifiable claims** keeps the justifications honest. A departure justified by
 "our sibling project's `status.md` hit 349 lines" invites the question of whether it did.
