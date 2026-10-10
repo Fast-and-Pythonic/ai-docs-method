@@ -32,13 +32,19 @@ def read(path):
 
 
 def live(text):
-    """Text with fenced blocks and HTML comments removed.
+    """Text with fenced blocks and HTML comments blanked out.
 
     A template ships its entry skeleton inside a comment. Counting it as a real entry
     makes the first experiment in a project come out as E02.
+
+    Blanked rather than removed: newlines are kept, so line i of the result is line i
+    of the original, and a position found in the live text can be written to in the
+    real one.
     """
-    text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
-    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    def blank(m):
+        return re.sub(r"[^\n]", " ", m.group(0))
+    text = re.sub(r"```.*?```", blank, text, flags=re.DOTALL)
+    return re.sub(r"<!--.*?-->", blank, text, flags=re.DOTALL)
 
 
 def next_id(text):
@@ -130,13 +136,17 @@ def main():
         text = re.sub(r"\*\*No experiments yet\.\*\*.*?(?=\n## |\Z)", "", text,
                       flags=re.DOTALL)
     else:
-        lines = text.splitlines()
-        existing = [i for i, l in enumerate(lines) if re.match(r"^- \*\*E\d+\*\*", l)]
+        # Search the live lines, write the real ones. The template keeps example index
+        # lines in a comment below the real index; searching the raw text put every
+        # entry after the first one inside that comment, where the linter cannot see it.
+        lines, live_lines = text.splitlines(), live(text).splitlines()
+        existing = [i for i, l in enumerate(live_lines)
+                    if re.match(r"^- \*\*E\d+\*\*", l)]
         if existing:
             lines.insert(max(existing) + 1, index_line)
         else:
             # No index lines yet: put it under the Index heading.
-            head = next((i for i, l in enumerate(lines)
+            head = next((i for i, l in enumerate(live_lines)
                          if re.match(r"^##+\s*Index\b", l)), None)
             if head is None:
                 sys.exit("error: experiments.md has no '## Index' section to write into.")

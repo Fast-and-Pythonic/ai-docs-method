@@ -142,6 +142,9 @@ creation — which means the entry must be cheaper to create with the tool than 
 That is the whole design goal. An entry written by hand afterwards must carry the `retro`
 marker.
 
+`python -m unittest discover -s tests` drives it against the unmodified template and
+holds the result to the linter; run it after changing the tool or the template.
+
 ## `hooks/pre-commit`
 
 Runs the linter before every commit. Install once:
